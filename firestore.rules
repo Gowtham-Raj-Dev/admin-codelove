@@ -13,7 +13,7 @@ service cloud.firestore {
     // One document per site per day (IST): d/{YYYY-MM-DD}_{host_with_underscores}
     match /d/{id} {
       allow read: if isOwner();
-      allow create, update: if id.matches('^20[0-9]{2}-[01][0-9]-[0-3][0-9]_(([a-z0-9-]+_)*codelove_in|localhost)$')
+      allow create, update: if id.matches('^20[0-9]{2}-[01][0-9]-[0-3][0-9]_(([a-z0-9-]+_)*codelove_in|fir-4b5dc_web_app|localhost)$')
         && request.resource.data.keys().hasOnly(['t', 'p', 'h', 'r', 'dev', 'tz', 'clk', 'br', 'live'])
         && okMap('t') && okMap('p') && okMap('h') && okMap('r') && okMap('dev')
         && okMap('tz') && okMap('clk') && okMap('br') && okMap('live')

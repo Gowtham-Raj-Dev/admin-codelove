@@ -16,7 +16,8 @@
   try { if (window.top !== window.self) return; } catch (e) { return; }
 
   var host = location.hostname.replace(/^www\./, '').toLowerCase();
-  if (!/(^|\.)codelove\.in$/.test(host) && host !== 'localhost') return;
+  // *.codelove.in, youtube-for-me (fir-4b5dc.web.app) and localhost. Keep in step with firestore.rules.
+  if (!/(^|\.)codelove\.in$/.test(host) && host !== 'fir-4b5dc.web.app' && host !== 'localhost') return;
   var site = host.replace(/\./g, '_');
 
   function lg(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
