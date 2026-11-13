@@ -10,13 +10,13 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#/">CodeLove <span>Admin</span></a>
-    <nav class="tabs" id="tabs" hidden>
-      <a href="#/" data-tab="overview">Sites</a>
-      <a href="#/pages" data-tab="pages">All pages</a>
-      <a href="#/live" data-tab="live">Live</a>
+    <a class="brand" href="#/"><span class="logo" aria-hidden="true"></span>CodeLove <span>Admin</span></a>
+    <nav class="source" id="source" aria-label="Data source">
+      <a href="#/" data-src="own">CodeLove Analytics</a>
+      <a href="#/ga" data-src="ga">Google Analytics</a>
     </nav>
-    <div class="controls" id="controls" hidden>
+    <div class="controls">
+      <a href="#/live" class="live-badge" id="liveBadge" hidden></a>
       <select id="range" aria-label="Date range">
         <option value="today">Today</option>
         <option value="yesterday">Yesterday</option>
@@ -30,8 +30,9 @@
         <input type="date" id="from" aria-label="From"> – <input type="date" id="to" aria-label="To">
       </span>
       <button id="refresh" class="ghost" title="Reload data">Refresh</button>
-      <button id="signout" class="ghost">Sign out</button>
+      <button id="signout" class="ghost" hidden>Sign out</button>
     </div>
+    <nav class="tabs" id="tabs"></nav>
   </header>
 
   <main id="app"><div class="center muted">Loading…</div></main>
@@ -39,7 +40,13 @@
   <div id="tooltip" class="tooltip" hidden></div>
 
   <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="common.js"></script>
+  <script src="ga.js"></script>
+  <script src="own.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
