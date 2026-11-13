@@ -1,5 +1,17 @@
 # CodeLove Admin — admin.codelove.in
 
+Two sections:
+
+- **CodeLove Analytics** (default, `#/…`): our own tracker. `site/t.js` is added to every site with
+  `<script defer src="https://admin.codelove.in/t.js"></script>` and writes pre-aggregated counts to
+  Cloud Firestore (Firebase project `codelove-analytics`): one document per site per IST day,
+  `d/{YYYY-MM-DD}_{host_with_underscores}`, so every flush is one write (page load, every 60 s while
+  active, tab hide). Rules: `firestore.rules` (read = owner Gmail only; writes only to *.codelove.in /
+  localhost docs with known fields). Big maps are excluded from indexing (`firestore.indexes.json`).
+  Deploy: `firebase deploy --only firestore`.
+  Free plan: 20k writes + 50k reads per day.
+- **Google Analytics** (`#/ga/…`): GA4 Data/Admin API with the owner's Google login.
+
 Private analytics dashboard for every CodeLove site: users, sessions, views, time spent,
 per-site and per-page, plus a live (last 30 min) view.
 

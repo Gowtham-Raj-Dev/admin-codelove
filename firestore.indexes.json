@@ -1,0 +1,14 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "d", "fieldPath": "t", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "p", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "h", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "r", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "dev", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "tz", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "clk", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "br", "indexes": [] },
+    { "collectionGroup": "d", "fieldPath": "live", "indexes": [] }
+  ]
+}

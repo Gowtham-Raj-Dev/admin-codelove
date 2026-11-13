@@ -1,34 +1,41 @@
-/* CodeLove Analytics section: our own tracker data (t.js) from Firebase Realtime Database. */
+/* CodeLove Analytics section: our own tracker data (t.js) from Cloud Firestore.
+ * Collection d, one document per site per IST day: d/{YYYY-MM-DD}_{host_with_underscores}
+ *   t: {v,u,n,s,sec,c}  p: {pageKey: {v,u,sec,c,ti}}  h/r/dev/tz/br/clk: {key: count}  live: {vid: {p, t}} */
 (() => {
   'use strict';
-  const { $, store, num, compact, dur, durAxis, esc, div, parseIso, rangeText, eachDay, chartCard, columns, sparkline, kpis, deltaHtml, table, barList, favicon } = CL;
+  const { $, num, compact, dur, durAxis, esc, div, iso, istToday, rangeText, eachDay, chartCard, columns, sparkline, kpis, deltaHtml, table, barList, favicon } = CL;
   const CFG = (window.ADMIN_CONFIG || {}).firebase || {};
   const OWNER = (window.ADMIN_CONFIG || {}).ownerEmail || '';
   const app = $('#app');
-  const LIVE_WINDOW = 45e3;
+  const LIVE_WINDOW = 90e3; // tracker heartbeat is 60 s
 
-  let db = null, auth = null, user = null, authReady = false, serverOffset = 0;
+  let db = null, auth = null, user = null, authReady = false;
   const onAuthChange = [];
   function init() {
     if (db || !window.firebase || !CFG.apiKey) return;
     firebase.initializeApp(CFG);
     auth = firebase.auth();
-    db = firebase.database();
-    db.ref('.info/serverTimeOffset').on('value', (s) => { serverOffset = s.val() || 0; });
+    db = firebase.firestore();
     auth.onAuthStateChanged((u) => { user = u; authReady = true; onAuthChange.forEach((f) => f(u)); if (u) watchLive(); else unwatchLive(); });
   }
-  const now = () => Date.now() + serverOffset;
+  const now = () => Date.now();
+  const docId = () => firebase.firestore.FieldPath.documentId();
 
   // ---------- data ----------
   const cache = new Map();
   function getDays(start, end) {
     const k = start + '|' + end;
-    if (!cache.has(k)) cache.set(k, db.ref('d').orderByKey().startAt(start).endAt(end).once('value').then((s) => s.val() || {}).catch((e) => { cache.delete(k); throw e; }));
-    return cache.get(k);
-  }
-  function getTitles(site) {
-    const k = 'titles|' + (site || '*');
-    if (!cache.has(k)) cache.set(k, db.ref(site ? 'titles/' + site : 'titles').once('value').then((s) => s.val() || {}).catch((e) => { cache.delete(k); throw e; }));
+    if (!cache.has(k)) {
+      cache.set(k, db.collection('d').where(docId(), '>=', start).where(docId(), '<=', end + '_').get().then((snap) => {
+        const raw = {};
+        snap.forEach((doc) => {
+          const i = doc.id.indexOf('_');
+          const day = doc.id.slice(0, i), site = doc.id.slice(i + 1);
+          (raw[day] ||= {})[site] = doc.data();
+        });
+        return raw;
+      }).catch((e) => { cache.delete(k); throw e; }));
+    }
     return cache.get(k);
   }
   const hostOf = (site) => site.replace(/_/g, '.');
@@ -45,12 +52,16 @@
     for (const day in raw) {
       const inCur = day >= R.start && day <= R.end;
       for (const site in raw[day]) {
-        if (onlySite && site !== onlySite) continue;
+        if (onlySite ? site !== onlySite : site === 'localhost') continue; // localhost = test data, only on its own page
         const d = raw[day][site] || {}, S = get(site);
         if (!inCur) { addT(S.prev, d.t); continue; }
         addT(S.cur, d.t);
         S.daily[day] = { ...T0(), ...(d.t || {}) };
-        for (const pk in d.p || {}) { const p = (S.pages[pk] ||= { v: 0, u: 0, sec: 0, c: 0 }); addT(p, d.p[pk]); }
+        for (const pk in d.p || {}) {
+          const src = d.p[pk] || {}, p = (S.pages[pk] ||= { v: 0, u: 0, sec: 0, c: 0, ti: '' });
+          p.v += src.v || 0; p.u += src.u || 0; p.sec += src.sec || 0; p.c += src.c || 0;
+          if (src.ti) p.ti = src.ti;
+        }
         for (const g of ['h', 'r', 'dev', 'tz', 'clk', 'br']) addMap(S[g], d[g]);
       }
     }
@@ -68,27 +79,39 @@
   const sumT = (sites, which) => { const t = T0(); sites.forEach((s) => addT(t, s[which])); return t; };
   const sumG = (sites, g) => { const m = {}; sites.forEach((s) => addMap(m, s[g])); return m; };
   const top = (m, n = 10, map = (k) => ({ name: dec(k) })) => Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, v]) => ({ ...map(k), value: v }));
-  function pageRows(sites, titles) {
+  function pageRows(sites) {
     const rows = [];
     for (const s of sites) for (const pk in s.pages) {
       const p = s.pages[pk];
-      const title = (titles[s.site] && titles[s.site][pk]) || '';
-      rows.push({ host: s.host, site: s.site, path: dec(pk), title, views: p.v, users: p.u, time: p.sec, clicks: p.c, perUser: div(p.sec, p.u), perView: div(p.sec, p.v) });
+      if (!p.v && !p.sec) continue;
+      rows.push({ host: s.host, site: s.site, path: dec(pk), title: p.ti || '', views: p.v, users: p.u, time: p.sec, clicks: p.c, perUser: div(p.sec, p.u), perView: div(p.sec, p.v) });
     }
     return rows;
   }
 
-  // ---------- live ----------
-  let liveRef = null, liveData = {}; const liveListeners = new Set();
+  // ---------- live: listen to today's documents (live.{vid} = {p, t}) ----------
+  let liveUnsub = null, liveDayKey = '', liveData = {}, liveTitles = {}; const liveListeners = new Set();
   function watchLive() {
-    if (liveRef) return;
-    liveRef = db.ref('live');
-    liveRef.on('value', (s) => { liveData = s.val() || {}; liveListeners.forEach((f) => f()); updateBadge(); }, () => {});
+    const today = iso(istToday());
+    if (liveUnsub && liveDayKey === today) return;
+    if (liveUnsub) liveUnsub();
+    liveDayKey = today;
+    liveUnsub = db.collection('d').where(docId(), '>=', today).where(docId(), '<=', today + '_').onSnapshot((snap) => {
+      liveData = {}; liveTitles = {};
+      snap.forEach((doc) => {
+        const site = doc.id.slice(doc.id.indexOf('_') + 1), d = doc.data();
+        liveData[site] = d.live || {};
+        liveTitles[site] = {};
+        for (const pk in d.p || {}) if (d.p[pk] && d.p[pk].ti) liveTitles[site][pk] = d.p[pk].ti;
+      });
+      liveListeners.forEach((f) => f()); updateBadge();
+    }, () => {});
   }
-  function unwatchLive() { if (liveRef) liveRef.off(); liveRef = null; liveData = {}; updateBadge(); }
+  function unwatchLive() { if (liveUnsub) liveUnsub(); liveUnsub = null; liveData = {}; updateBadge(); }
+  const ms = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : Number(t) || 0);
   function liveNow() {
     const cut = now() - LIVE_WINDOW, out = [];
-    for (const site in liveData) for (const vid in liveData[site]) { const e = liveData[site][vid]; if (e && e.t > cut) out.push({ site, host: hostOf(site), path: e.p, vid }); }
+    for (const site in liveData) for (const vid in liveData[site]) { const e = liveData[site][vid]; if (e && ms(e.t) > cut) out.push({ site, host: hostOf(site), path: e.p || '/', vid }); }
     return out;
   }
   function updateBadge() {
@@ -102,11 +125,15 @@
       h.innerHTML = `<span class="pulse${c ? '' : ' idle'}"></span><b>${num(c)}</b> on site now`;
     });
   }
-  setInterval(() => { updateBadge(); liveListeners.forEach((f) => f()); }, 10e3);
+  setInterval(() => { if (user) watchLive(); updateBadge(); liveListeners.forEach((f) => f()); }, 10e3);
+  // Visitors whose tab closed without the final "bye" stay in live.{vid}; the owner removes them after 30 min.
   function cleanupLive() {
-    const cut = now() - 60 * 60e3, upd = {};
-    for (const site in liveData) for (const vid in liveData[site]) if (!liveData[site][vid] || liveData[site][vid].t < cut) upd[site + '/' + vid] = null;
-    if (Object.keys(upd).length) db.ref('live').update(upd).catch(() => {});
+    const cut = now() - 30 * 60e3;
+    for (const site in liveData) {
+      const upd = {};
+      for (const vid in liveData[site]) if (!liveData[site][vid] || ms(liveData[site][vid].t) < cut) upd['live.' + vid] = firebase.firestore.FieldValue.delete();
+      if (Object.keys(upd).length) db.collection('d').doc(liveDayKey + '_' + site).update(upd).catch(() => {});
+    }
   }
 
   // ---------- views ----------
@@ -202,9 +229,7 @@
     g2.innerHTML = barList('Devices (visitors)', top(sumG(sites, 'dev'))) + barList('Browsers (visitors)', top(sumG(sites, 'br'))) + barList('Regions (timezone)', top(sumG(sites, 'tz'), 10, (k) => ({ name: tzName(k) })));
     app.append(g2);
 
-    const titles = await getTitles().catch(() => ({}));
-    if (!alive()) return;
-    const pages = pageRows(sites, titles).sort((a, b) => b.views - a.views).slice(0, 10);
+    const pages = pageRows(sites).sort((a, b) => b.views - a.views).slice(0, 10);
     const card = document.createElement('section');
     card.className = 'card';
     card.innerHTML = '<div class="card-head"><h2>Top pages</h2><a href="#/pages">All pages →</a></div><div class="tbl"></div>';
@@ -230,7 +255,7 @@
 
   async function viewSite(R, alive, host) {
     const site = host.replace(/\./g, '_');
-    const [list, titles] = await Promise.all([load(R, site), getTitles(site).catch(() => ({}))]);
+    const list = await load(R, site);
     if (!alive()) return;
     const s = list[0];
     const liveHere = liveNow().filter((x) => x.site === site);
@@ -243,7 +268,7 @@
     card.className = 'card';
     card.innerHTML = '<div class="card-head"><h2>Pages</h2></div><div class="tbl"></div><p class="note">Visitors per page are unique per day, added up over the range.</p>';
     app.append(card);
-    table($('.tbl', card), pageCols(false), pageRows([s], { [site]: titles }), { sort: 'views', search: 'Search path or title' });
+    table($('.tbl', card), pageCols(false), pageRows([s]), { sort: 'views', search: 'Search path or title' });
     const g = document.createElement('div');
     g.className = 'grid2';
     g.append(hoursCard([s]));
@@ -256,9 +281,9 @@
   }
 
   async function viewPages(R, alive) {
-    const [sites, titles] = await Promise.all([load(R), getTitles().catch(() => ({}))]);
+    const sites = await load(R);
     if (!alive()) return;
-    const rows = pageRows(sites, titles);
+    const rows = pageRows(sites);
     const t = rows.reduce((a, p) => ((a.views += p.views), (a.time += p.time), (a.clicks += p.clicks), a), { views: 0, time: 0, clicks: 0 });
     app.innerHTML = hero('CodeLove Analytics', 'All pages', `${rangeText(R)} · ${num(rows.length)} pages · ${num(t.views)} views · ${dur(t.time)} total time · ${num(t.clicks)} clicks`);
     const card = document.createElement('section');
@@ -271,9 +296,8 @@
   let liveRender = null;
   async function viewLive(alive) {
     cleanupLive();
-    const titlesP = getTitles().catch(() => ({}));
-    let titles = {};
     const render = () => {
+      const titles = liveTitles;
       if (!alive()) { liveListeners.delete(render); return; }
       const live = liveNow();
       const bySite = {}, byPage = {};
@@ -288,8 +312,6 @@
     liveRender = render;
     liveListeners.add(render);
     render();
-    titles = await titlesP;
-    if (alive()) render();
   }
 
   function viewTracker() {

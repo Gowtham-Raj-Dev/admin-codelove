@@ -3,11 +3,10 @@ window.ADMIN_CONFIG = {
   // Only this Google account may read CodeLove Analytics (also enforced in database.rules.json).
   ownerEmail: 'gowthamraje1221@gmail.com',
 
-  // CodeLove Analytics (own tracker) — Firebase project "codelove-analytics".
+  // CodeLove Analytics (own tracker) — Firebase project "codelove-analytics", Cloud Firestore.
   firebase: {
     apiKey: 'AIzaSyDxvgBOnJBPpUNgoYk_8Dpk85ahxMrqv5I',
     authDomain: 'codelove-analytics.firebaseapp.com',
-    databaseURL: 'https://codelove-analytics-default-rtdb.firebaseio.com',
     projectId: 'codelove-analytics',
     appId: '1:698568650935:web:aa0e80d4e9a60d96765d32',
   },
