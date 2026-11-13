@@ -21,6 +21,29 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    // APK download counts for apps.codelove.in: ONE public doc dl/apps = { n: { <appId>: count } }.
+    // Anyone may read it; a write may only add exactly 1 to exactly one app id.
+    function okAppId(k) {
+      return k is string && k.matches('^[a-z0-9-]{1,40}$');
+    }
+    match /dl/{id} {
+      allow read: if id == 'apps';
+      allow create: if id == 'apps'
+        && request.resource.data.keys().hasOnly(['n'])
+        && request.resource.data.n is map
+        && request.resource.data.n.keys().size() == 1
+        && okAppId(request.resource.data.n.keys()[0])
+        && request.resource.data.n[request.resource.data.n.keys()[0]] == 1;
+      allow update: if id == 'apps'
+        && request.resource.data.keys().hasOnly(['n'])
+        && request.resource.data.n is map
+        && request.resource.data.n.diff(resource.data.n).affectedKeys().size() == 1
+        && okAppId(request.resource.data.n.diff(resource.data.n).affectedKeys().toList()[0])
+        && request.resource.data.n[request.resource.data.n.diff(resource.data.n).affectedKeys().toList()[0]]
+           == resource.data.n.get(request.resource.data.n.diff(resource.data.n).affectedKeys().toList()[0], 0) + 1;
+      allow delete: if isOwner();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
