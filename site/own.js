@@ -49,10 +49,13 @@
     const raw = await getDays(R.prevStart, R.end);
     const sites = {};
     const get = (site) => (sites[site] ||= { site, host: hostOf(site), cur: T0(), prev: T0(), daily: {}, pages: {}, h: {}, r: {}, dev: {}, tz: {}, clk: {}, br: {} });
+    // Every listed site gets a card, even with no data yet.
+    if (!onlySite) (window.ADMIN_CONFIG.sites || []).forEach((h) => get(h.replace(/\./g, '_')));
     for (const day in raw) {
       const inCur = day >= R.start && day <= R.end;
       for (const site in raw[day]) {
-        if (onlySite ? site !== onlySite : site === 'localhost') continue; // localhost = test data, only on its own page
+        // Overview: only *.codelove.in (localhost = test data, only on its own page).
+        if (onlySite ? site !== onlySite : !/(^|_)codelove_in$/.test(site)) continue;
         const d = raw[day][site] || {}, S = get(site);
         if (!inCur) { addT(S.prev, d.t); continue; }
         addT(S.cur, d.t);
@@ -186,17 +189,17 @@
     return `<section class="card setup-card"><h2>No visits recorded yet</h2>
       <p>Add this one line to every site (inside <code>&lt;head&gt;</code>), deploy, and visits start showing here within seconds:</p>
       <pre class="code">${esc(SNIPPET)}</pre>
-      <p class="note">Works on all *.codelove.in sites, fir-4b5dc.web.app (youtube-for-me) and localhost. Counts visitors, visits, page views, time on page (tab visible and active), clicks, sources, devices and live visitors. No cookies.</p></section>`;
+      <p class="note">Works on all *.codelove.in sites and localhost. Counts visitors, visits, page views, time on page (tab visible and active), clicks, sources, devices and live visitors. No cookies.</p></section>`;
   }
 
   async function viewOverview(R, alive) {
     const all = await load(R);
     if (!alive()) return;
-    const sites = all.filter((s) => s.cur.v || s.prev.v).sort((a, b) => b.cur.u - a.cur.u || b.cur.v - a.cur.v);
+    const sites = all.sort((a, b) => b.cur.u - a.cur.u || b.cur.v - a.cur.v || a.host.localeCompare(b.host));
     const c = sumT(sites, 'cur'), p = sumT(sites, 'prev');
     const live = liveNow();
     app.innerHTML = hero('CodeLove Analytics', 'All sites', `${rangeText(R)} · ${sites.length} sites · vs ${rangeText({ start: R.prevStart, end: R.prevEnd })}`, liveHero(live.length));
-    if (!sites.length) { app.insertAdjacentHTML('beforeend', emptyState()); return; }
+    if (!sites.some((s) => s.cur.v || s.prev.v)) { app.insertAdjacentHTML('beforeend', emptyState()); return; }
     app.insertAdjacentHTML('beforeend', kpiSet(c, p));
     app.append(chart('Across all sites', series(R, sites)));
 
@@ -317,7 +320,7 @@
   function viewTracker() {
     app.innerHTML = hero('CodeLove Analytics', 'Tracker setup', 'One line on every site') + `<section class="card setup-card"><h2>Add to every site</h2><pre class="code">${esc(SNIPPET)}</pre>
       <ul><li>Put it in <code>&lt;head&gt;</code> (Next.js: in <code>app/layout.tsx</code> with <code>&lt;Script src=… strategy="afterInteractive" /&gt;</code>; Vite/static: in <code>index.html</code>).</li>
-      <li>Only *.codelove.in hosts, fir-4b5dc.web.app and localhost are accepted by the database rules.</li>
+      <li>Only *.codelove.in hosts and localhost are accepted by the database rules.</li>
       <li>Single-page apps are handled automatically (pushState / back button).</li>
       <li>Bots, headless browsers and iframes are skipped.</li></ul></section>`;
   }
