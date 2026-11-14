@@ -5,7 +5,7 @@
  * Site filter: #/site/<host> (overview of one site) or ?site=<host> on pages/live. */
 (() => {
   'use strict';
-  const { $, store, esc, icon, favicon, popover, selectMenu, closePop, PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, shortRange, hideTip, iso, istToday } = CL;
+  const { $, store, esc, icon, favicon, popover, closePop, PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, shortRange, hideTip, iso, istToday } = CL;
   const CFG = window.ADMIN_CONFIG || {};
   const SITES = CFG.sites || [];
   let renderId = 0;
@@ -93,17 +93,32 @@
     });
   }));
 
-  $('#siteBtn').addEventListener('click', () => {
+  // Site picker: a wide grid of tiles (5 columns on desktop) with search.
+  const NAMES = CFG.siteNames || {};
+  const siteName = (h) => NAMES[h] || h.split('.')[0];
+  $('#siteBtn').addEventListener('click', () => popover($('#siteBtn'), (el, close) => {
     const list = SITES.slice();
     if (state.site && !list.includes(state.site)) list.push(state.site);
-    selectMenu($('#siteBtn'), {
-      title: 'Site',
-      search: list.length > 6 ? 'Search sites' : '',
-      value: state.site || '',
-      items: [{ value: '', label: 'All sites', icon: icon('globe') }, { sep: true }, ...list.map((h) => ({ value: h, label: h, icon: favicon(h) }))],
-      onSelect: (v) => { location.hash = link({ src: state.src, tab: state.tab, site: v || null }); },
+    const items = [
+      { v: '', name: 'All sites', host: `${SITES.length} sites together`, ic: `<span class="sm-ic">${icon('globe')}</span>` },
+      ...list.map((h) => ({ v: h, name: siteName(h), host: h, ic: favicon(h) })),
+    ];
+    const cur = state.site || '';
+    el.innerHTML = `<div class="sm-head"><div class="pop-title">Choose a site</div>
+        <label class="pop-search">${icon('search')}<input type="search" data-autofocus placeholder="Search sites" aria-label="Search sites" autocomplete="off"></label></div>
+      <div class="sm-grid" role="listbox" aria-label="Sites">${items.map((it, i) => `<button type="button" class="mi sm-tile" role="option" data-i="${i}" aria-selected="${it.v === cur}" title="${esc(it.v || it.name)}">${it.ic}<span class="sm-text"><span class="sm-name">${esc(it.name)}</span><span class="sm-host">${esc(it.host)}</span></span>${icon('check', 'mi-check')}</button>`).join('')}</div>
+      <div class="pop-empty" hidden>No site matches</div>`;
+    const tiles = [...el.querySelectorAll('.sm-tile')];
+    tiles.forEach((b) => b.addEventListener('click', () => { close(); location.hash = link({ src: state.src, tab: state.tab, site: items[+b.dataset.i].v || null }); }));
+    const input = $('input', el);
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      let any = false;
+      tiles.forEach((b) => { const it = items[+b.dataset.i]; const hit = !q || (it.v + ' ' + it.name).toLowerCase().includes(q); b.hidden = !hit; any ||= hit; });
+      $('.pop-empty', el).hidden = any;
     });
-  });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = tiles.find((x) => !x.hidden); if (b) b.click(); } });
+  }, { cls: 'pop-gridmenu' }));
 
   $('#refresh').addEventListener('click', () => {
     const b = $('#refresh');

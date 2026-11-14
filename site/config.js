@@ -36,4 +36,21 @@ window.ADMIN_CONFIG = {
     'apps.codelove.in',
     'gowtham.codelove.in',
   ],
+
+  // Friendly names shown in the site picker (falls back to the subdomain).
+  siteNames: {
+    'codelove.in': 'CodeLove',
+    'models.codelove.in': '3D Models',
+    'games.codelove.in': '3D Games',
+    'downloader.codelove.in': 'Insta Downloader',
+    'linkinbio.codelove.in': 'Link in Bio',
+    'videotogif.codelove.in': 'Video to GIF',
+    'videotoimages.codelove.in': 'Video to Images',
+    'utubeflow.codelove.in': 'UTubeFlow',
+    'javaplay.codelove.in': 'JavaPlay',
+    'videocut.codelove.in': 'Video Cut',
+    'videomaker.codelove.in': 'Video Maker',
+    'apps.codelove.in': 'Apps',
+    'gowtham.codelove.in': 'Portfolio',
+  },
 };

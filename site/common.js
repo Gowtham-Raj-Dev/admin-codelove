@@ -124,12 +124,24 @@
     alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
   };
   const icon = (name, cls = '') => `<svg class="ic ic-${name}${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
-  // Site favicon; falls back to the site's first letter when the icon can't load.
+  // Site favicon. Next.js sites only serve /icon.svg (no /favicon.ico), so try a few paths in order,
+  // remember the one that worked for this session, and fall back to the site's first letter.
+  const FAV_PATHS = ['/favicon.ico', '/icon.svg', '/apple-icon.png'];
+  const favPick = {}; // host -> index into FAV_PATHS that loaded (only successes are remembered; a network blip retries next time)
+  try { Object.assign(favPick, JSON.parse(sessionStorage.getItem('cl_fav') || '{}')); } catch { /* ignore */ }
+  const saveFav = () => store.set('cl_fav', JSON.stringify(favPick), sessionStorage);
+  const favHost = (host) => String(host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '');
+  const favLetter = (h) => (h.replace(/^www\./, '').charAt(0) || '?').toUpperCase();
   const favicon = (host) => {
-    const h = String(host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '');
-    const letter = (h.replace(/^www\./, '').charAt(0) || '?').toUpperCase();
-    return `<img class="fav" src="https://${h}/favicon.ico" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fav fav-x',textContent:'${letter}'}))">`;
+    const h = favHost(host), i = favPick[h] ?? 0;
+    return `<img class="fav" src="https://${h}${FAV_PATHS[i]}" alt="" loading="lazy" data-host="${h}" data-i="${i}" onload="CL.favOk(this)" onerror="CL.favErr(this)">`;
   };
+  function favOk(img) { const h = img.dataset.host; if (favPick[h] !== +img.dataset.i) { favPick[h] = +img.dataset.i; saveFav(); } }
+  function favErr(img) {
+    const h = img.dataset.host, tries = (+img.dataset.t || 1) + 1, i = (+img.dataset.i + 1) % FAV_PATHS.length;
+    if (tries <= FAV_PATHS.length) { img.dataset.t = tries; img.dataset.i = i; img.src = `https://${h}${FAV_PATHS[i]}`; return; }
+    img.replaceWith(Object.assign(document.createElement('span'), { className: 'fav fav-x', textContent: favLetter(h) }));
+  }
 
   // ---------- popover / dropdown ----------
   let openPop = null;
@@ -178,14 +190,24 @@
   document.addEventListener('keydown', (e) => {
     if (!openPop) return;
     if (e.key === 'Escape') { e.preventDefault(); closePop(); return; }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const items = $$('.mi', openPop.el).filter((x) => !x.hidden && !x.disabled);
-      if (!items.length) return;
-      e.preventDefault();
-      let i = items.indexOf(document.activeElement);
-      i = e.key === 'ArrowDown' ? (i + 1) % items.length : i <= 0 ? items.length - 1 : i - 1;
-      items[i].focus();
-    }
+    const k = e.key, vert = k === 'ArrowDown' || k === 'ArrowUp', horiz = k === 'ArrowLeft' || k === 'ArrowRight';
+    if (!vert && !horiz) return;
+    const grid = openPop.el.classList.contains('pop-gridmenu');
+    if (horiz && (!grid || document.activeElement.tagName === 'INPUT')) return; // let the caret move in the search box
+    const items = $$('.mi', openPop.el).filter((x) => !x.hidden && !x.disabled);
+    if (!items.length) return;
+    e.preventDefault();
+    let i = items.indexOf(document.activeElement);
+    const fwd = k === 'ArrowDown' || k === 'ArrowRight';
+    if (i < 0) { items[fwd ? 0 : items.length - 1].focus(); return; }
+    if (grid) {
+      // columns = how many tiles share the first row's top
+      const cols = vert ? items.filter((x) => x.offsetTop === items[0].offsetTop).length || 1 : 1;
+      const inp = $('input', openPop.el);
+      if (k === 'ArrowUp' && i - cols < 0 && inp) { inp.focus(); return; } // top row ↑ goes back to search
+      i = Math.max(0, Math.min(items.length - 1, i + (fwd ? cols : -cols)));
+    } else i = fwd ? (i + 1) % items.length : i <= 0 ? items.length - 1 : i - 1;
+    items[i].focus();
   });
   addEventListener('resize', () => { if (openPop && !openPop.el.classList.contains('sheet')) closePop(false); });
 
@@ -424,7 +446,7 @@
   window.CL = {
     $, $$, store, num, compact, pct, dur, durAxis, pctAxis, esc, div, iso, addDays, parseIso, istToday, fmtDate, rangeText, shortRange, eachDay,
     PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, axisMax,
-    icon, favicon, popover, closePop, selectMenu,
+    icon, favicon, favOk, favErr, popover, closePop, selectMenu,
     showTip, hideTip, lineChart, kpiChart, columns, sparkline, deltaHtml, table, barList,
     pageHead, loading, paint, el,
   };
