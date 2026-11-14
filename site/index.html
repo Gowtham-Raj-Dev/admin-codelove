@@ -6,38 +6,42 @@
   <meta name="robots" content="noindex, nofollow, noarchive">
   <title>CodeLove Admin</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M8 22V14M14 22V9M20 22v-6M26 22V11' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script>try { var t = localStorage.getItem('cl_theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="#/"><span class="logo" aria-hidden="true"></span>CodeLove <span>Admin</span></a>
-    <nav class="source" id="source" aria-label="Data source">
-      <a href="#/" data-src="own">CodeLove Analytics</a>
-      <a href="#/ga" data-src="ga">Google Analytics</a>
-    </nav>
-    <div class="controls">
-      <a href="#/live" class="live-badge" id="liveBadge" hidden></a>
-      <select id="range" aria-label="Date range">
-        <option value="today">Today</option>
-        <option value="yesterday">Yesterday</option>
-        <option value="7">Last 7 days</option>
-        <option value="28" selected>Last 28 days</option>
-        <option value="90">Last 90 days</option>
-        <option value="365">Last 365 days</option>
-        <option value="custom">Custom…</option>
-      </select>
-      <span id="customRange" hidden>
-        <input type="date" id="from" aria-label="From"> – <input type="date" id="to" aria-label="To">
-      </span>
-      <button id="refresh" class="ghost" title="Reload data">Refresh</button>
-      <button id="signout" class="ghost" hidden>Sign out</button>
+  <div class="shell">
+    <aside class="side" id="side" aria-label="Main menu">
+      <div class="side-head">
+        <a class="brand" href="#/"><span class="logo" aria-hidden="true"></span><span>CodeLove <b>Admin</b></span></a>
+        <button class="icon-btn side-close" id="sideClose" aria-label="Close menu"></button>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="side-foot note">Private dashboard · not indexed</div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <div class="main">
+      <header class="top">
+        <div class="top-inner">
+          <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu"></button>
+          <div class="filters" role="group" aria-label="Filters">
+            <button type="button" class="dd" id="rangeBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Date range"></button>
+            <button type="button" class="dd" id="siteBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Site"></button>
+            <button type="button" class="icon-btn" id="refresh" title="Reload data" aria-label="Reload data"></button>
+          </div>
+          <div class="top-right">
+            <a href="#/live" class="live-pill" id="liveBadge" hidden></a>
+            <button type="button" class="avatar-btn" id="accountBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account and settings"></button>
+          </div>
+        </div>
+      </header>
+
+      <main id="app"><div class="loading"><span class="spinner"></span>Loading…</div></main>
     </div>
-    <nav class="tabs" id="tabs"></nav>
-  </header>
+  </div>
 
-  <main id="app"><div class="center muted">Loading…</div></main>
-
-  <div id="tooltip" class="tooltip" hidden></div>
+  <div id="tooltip" class="tooltip" role="status" hidden></div>
 
   <script src="config.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>

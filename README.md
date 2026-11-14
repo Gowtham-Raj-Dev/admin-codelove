@@ -15,6 +15,12 @@ Two sections:
 Private analytics dashboard for every CodeLove site: users, sessions, views, time spent,
 per-site and per-page, plus a live (last 30 min) view.
 
+Layout: sidebar (both sections) + one filter row on top: **Date range** dropdown (presets + custom),
+**Site** dropdown (searchable; "All sites" or one site, kept when switching tabs), refresh, live count
+and the account menu (sign-in status, theme, sign out). The KPI tiles double as the chart's metric
+switch, and every chart has a table view. `config.js` → `trackingSince` is the day t.js went live;
+earlier days are shown as "no data", not as zero.
+
 - Plain static site in `site/` (no build). Deployed to GitHub Pages by `.github/workflows/deploy.yml`.
 - Data comes from Google Analytics 4 (Data API + Admin API), called from the browser with the
   owner's Google login (`analytics.readonly`). Nothing is stored on a server; without a Google
@@ -28,7 +34,8 @@ per-site and per-page, plus a live (last 30 min) view.
    enable **Google Analytics Data API** and **Google Analytics Admin API**.
 2. OAuth consent screen: External, keep in **Testing**, add your Gmail as a **test user**.
 3. Credentials → OAuth client ID → Web application. Authorized JavaScript origins:
-   `https://admin.codelove.in`, `http://localhost:5500`.
+   `https://admin.codelove.in`, `http://localhost:5500`. (Missing origin = Google shows
+   "Error 400: origin_mismatch" when you press Sign in on the Google Analytics page.)
 4. Put the client ID in `site/config.js` (`clientId`) and push.
 5. DNS: `CNAME admin → gowtham-raj-dev.github.io`. GitHub repo → Settings → Pages → Source: GitHub Actions, custom domain `admin.codelove.in`, Enforce HTTPS.
 

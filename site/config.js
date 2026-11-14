@@ -1,7 +1,10 @@
 // Public config (none of these are secrets; access is enforced by Google sign-in + database rules).
 window.ADMIN_CONFIG = {
-  // Only this Google account may read CodeLove Analytics (also enforced in database.rules.json).
+  // Only this Google account may read CodeLove Analytics (also enforced in firestore.rules).
   ownerEmail: 'gowthamraje1221@gmail.com',
+
+  // First day t.js was live on the sites. Days before this are "no data", not zero visitors.
+  trackingSince: '2026-11-13',
 
   // CodeLove Analytics (own tracker) — Firebase project "codelove-analytics", Cloud Firestore.
   firebase: {
