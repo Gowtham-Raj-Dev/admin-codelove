@@ -400,7 +400,13 @@
     user: () => user,
     db: () => (init(), db),
     authReady: () => (authReady ? Promise.resolve(user) : new Promise((r) => onAuthChange.push(r))),
-    lib: { load, pageRows, siteOf, hostOf, SINCE },
+    lib: {
+      load, pageRows, siteOf, hostOf, SINCE, LIVE_WINDOW,
+      // live visitors for the Dashboard: [{site, host, path, vid}], page titles, and a change listener (returns unsubscribe)
+      liveNow,
+      liveTitle: (site, path) => { const k = encodeURIComponent(path).replace(/\./g, '%2E').replace(/[*'()!~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()); return (liveTitles[site] || {})[k] || ''; },
+      onLive: (f) => { liveListeners.add(f); return () => liveListeners.delete(f); },
+    },
     onAuth: (f) => onAuthChange.push(f),
     updateBadge,
   };

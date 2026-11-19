@@ -33,37 +33,57 @@
   async function getMeta(id) { const d = await metaRef(id).get(); return d.exists ? { id, ...d.data() } : null; }
   async function loadReport(id) {
     if (!bodies.has(id)) {
-      bodies.set(id, bodyRef(id).get().then((d) => {
+      bodies.set(id, bodyRef(id).get().then(async (d) => {
         if (!d.exists) return null;
         const b = d.data();
-        return { md: b.md || '', rep: JSON.parse(b.data || 'null') };
+        const [md, data] = await Promise.all([unzip(b.md), unzip(b.data)]);
+        return { md, rep: JSON.parse(data || 'null') };
       }).catch((e) => { bodies.delete(id); throw e; }));
     }
     return bodies.get(id);
   }
+  // A Firestore document holds at most 1 MiB, and a full report's JSON is bigger. Text is stored gzip-compressed
+  // (base64, "gz:" prefix) in the same fields, ~10x smaller. Old reports without the prefix are read as they are.
+  async function zip(s) {
+    const buf = new Uint8Array(await new Response(new Blob([s]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return 'gz:' + btoa(bin);
+  }
+  async function unzip(s) {
+    if (!s || !s.startsWith('gz:')) return s || '';
+    const bin = atob(s.slice(3)), u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
   async function listMetas() {
     if (!metas) {
-      metas = db().collection('reports').orderBy(firebase.firestore.FieldPath.documentId(), 'desc').limit(120).get().then((snap) => {
+      // Ids start with the IST date (YYYY-MM-DD…), so an ascending id range from ~6 months back gives the recent
+      // reports. Ascending document-id order uses Firestore's built-in index ('desc' would need a composite index).
+      const since = new Date(Date.now() - 185 * 864e5).toISOString().slice(0, 10);
+      metas = db().collection('reports').orderBy(firebase.firestore.FieldPath.documentId()).startAt(since).get().then((snap) => {
         const out = []; snap.forEach((d) => out.push({ id: d.id, ...d.data() }));
-        return out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
+        return out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 120);
       }).catch((e) => { metas = null; throw e; });
     }
     return metas;
   }
   const bytes = (s) => new Blob([s]).size;
   async function save(rep, md) {
-    let data = JSON.stringify(rep);
-    // keep the body document well under 1 MiB: drop indexed pages without advice, then shorten keyword lists
-    if (bytes(data) + bytes(md) > BODY_MAX) {
-      rep.sites.forEach((s) => { if (s.gsc) s.gsc.pages = s.gsc.pages.filter((p) => p.st !== 'yes' || p.adv.some((a) => a.k !== 'info')); });
-      data = JSON.stringify(rep);
-    }
-    if (bytes(data) + bytes(md) > BODY_MAX) {
-      rep.sites.forEach((s) => { if (s.gsc) { s.gsc.top = s.gsc.top.slice(0, 15); s.gsc.pages = s.gsc.pages.filter((p) => p.st === 'no').slice(0, 60); } });
-      data = JSON.stringify(rep); rep.trimmed = true;
-    }
     const problems = JSON.stringify(rep.sites.flatMap((s) => s.problems.map((p) => [s.host, p.sev, p.title, p.url || '', p.status || ''])));
-    await bodyRef(rep.id).set({ md, data, problems });
+    const [zMd, zProb] = await Promise.all([zip(md), zip(problems)]);
+    let data = JSON.stringify(rep), zData = await zip(data);
+    // Still over the limit after compression (very rare): drop indexed pages without advice, then shorten lists.
+    const TRIMS = [
+      () => rep.sites.forEach((s) => { if (s.gsc) s.gsc.pages = s.gsc.pages.filter((p) => p.st !== 'yes' || p.adv.some((a) => a.k !== 'info')); }),
+      () => rep.sites.forEach((s) => { if (s.gsc) { s.gsc.top = s.gsc.top.slice(0, 15); s.gsc.pages = s.gsc.pages.filter((p) => p.st === 'no').slice(0, 60); } }),
+    ];
+    for (const trim of TRIMS) {
+      if (zData.length + zMd.length + zProb.length <= BODY_MAX) break;
+      trim(); rep.trimmed = true; data = JSON.stringify(rep); zData = await zip(data);
+    }
+    if (zData.length + zMd.length + zProb.length > BODY_MAX) throw new Error(`The report is too big to save (${Math.round((zData.length + zMd.length + zProb.length) / 1024)} KB compressed). Generate it for one site at a time.`);
+    await bodyRef(rep.id).set({ md: zMd, data: zData, problems: zProb });
     await metaRef(rep.id).set({ date: rep.date, site: rep.site || '', createdAt: rep.createdAt, range: rep.range, summary: rep.totals, bytes: bytes(data) + bytes(md) + bytes(problems) });
     metas = null; bodies.set(rep.id, Promise.resolve({ md, rep }));
     todayKnown = null;
@@ -234,21 +254,37 @@
       const g = s.gsc;
       L.push(`| ${s.host} | ${cell(repoPath(s.host) || '–')} | ${s.problems.filter((p) => p.sev === 'fix').length} | ${s.problems.filter((p) => p.sev === 'win').length} | ${g ? num(g.cur.c) : '–'} | ${g ? num(g.cur.i) : '–'} | ${g && g.cur.pos ? g.cur.pos.toFixed(1) : '–'} | ${g ? `${g.index.indexed} / ${g.index.notIndexed}` : '–'} | ${s.traffic ? num(s.traffic.cur.u) : '–'} |`);
     }
-    for (const s of rep.sites) {
+    for (const s of rep.sites) siteMd(s, L);
+    if (rep.missing && rep.missing.length) L.push('', `Not in Search Console: ${rep.missing.join(', ')}`);
+    L.push('');
+    return L.join('\n');
+  }
+  // Markdown for one problem group (same problem on one or more pages): what, where, Google's status, steps.
+  function groupMd(s, gr, n, L) {
+    const one = gr.items.length === 1 ? gr.items[0] : null;
+    L.push(`${n}. **[${SEV_MD[gr.sev]}] ${gr.title}**${one && one.url ? ` — ${one.url}` : gr.items.length > 1 ? ` — ${gr.items.length} pages` : ''}`);
+    if (one) {
+      if (one.status) L.push(`   - Status: ${one.status}`);
+      if (one.impr != null && one.url) L.push(`   - Search: ${num(one.impr)} impressions in range${one.best ? `, best position #${one.best} (Google page ${Math.ceil(one.best / 10)})` : ''}`);
+    } else {
+      L.push('   - Pages:');
+      gr.items.slice(0, 200).forEach((p) => L.push(`     - ${p.url || '(site-wide)'}${p.status ? ` — ${p.status}` : ''}${p.impr ? ` · ${num(p.impr)} impressions` : ''}`));
+      if (gr.items.length > 200) L.push(`     - …and ${gr.items.length - 200} more`);
+    }
+    L.push(`   - Problem: ${gr.detail}`);
+    L.push('   - Steps:');
+    stepsFor(gr, s).forEach((st, i) => L.push(`     ${i + 1}. ${st}`));
+  }
+  function siteMd(s, L) {
       const g = s.gsc, t = s.traffic;
       L.push('', `## ${s.host}`, '');
       L.push(`- URL: ${s.url}`);
       L.push(`- Repo: \`${repoPath(s.host) || 'unknown (add it to repoFolders in admin-codelove/site/config.js)'}\``);
       if (g) L.push(`- Search Console property: ${g.prop}`);
-      const probs = s.problems.filter((p) => p.sev !== 'info' || p.title !== 'Not checked yet');
-      L.push('', '### Problems (most important first)', '');
-      if (!probs.length) L.push('None found.');
-      probs.forEach((p, i) => {
-        L.push(`${i + 1}. **[${SEV_MD[p.sev]}] ${p.title}**${p.url ? ` — ${p.url}` : ''}`);
-        if (p.status) L.push(`   - Status: ${p.status}`);
-        if (p.impr != null && p.url) L.push(`   - Search: ${num(p.impr)} impressions in range${p.best ? `, best position #${p.best} (Google page ${Math.ceil(p.best / 10)})` : ''}`);
-        L.push(`   - Fix: ${p.detail}`);
-      });
+      const groups = groupProbs(s.problems.filter((p) => p.sev !== 'info' || p.title !== 'Not checked yet'));
+      L.push('', '### Problems (most important first; the same problem on several pages is listed once)', '');
+      if (!groups.length) L.push('None found.');
+      groups.forEach((gr, i) => groupMd(s, gr, i + 1, L));
       const unk = s.problems.filter((p) => p.title === 'Not checked yet').length;
       if (unk) L.push(`- ${unk} page${unk > 1 ? 's' : ''} not checked with Google yet (quota); run the report again tomorrow.`);
       if (g) {
@@ -280,9 +316,153 @@
         L.push(`Visitors ${num(t.cur.u)}${ch(t.cur.u, t.prev.u)} · Visits ${num(t.cur.s)}${ch(t.cur.s, t.prev.s)} · Page views ${num(t.cur.v)}${ch(t.cur.v, t.prev.v)} · Time ${dur(t.cur.sec)} · Clicks ${num(t.cur.c)}`);
         if (t.top.length) L.push(`Top pages: ${t.top.map((p) => `${p.path} (${num(p.views)} views)`).join(', ')}`);
       }
+    return L;
+  }
+
+  // ---------- grouping + "what to do" steps ----------
+  // The same problem on many pages (e.g. 80 × "Make the content unique") becomes one group with a page list.
+  function groupProbs(probs) {
+    const by = new Map();
+    for (const p of probs) {
+      const k = p.sev + '|' + p.title;
+      if (!by.has(k)) by.set(k, { sev: p.sev, title: p.title, detail: p.detail, items: [] });
+      by.get(k).items.push(p);
     }
-    if (rep.missing && rep.missing.length) L.push('', `Not in Search Console: ${rep.missing.join(', ')}`);
+    return [...by.values()];
+  }
+  const inspectUrl = (prop, url) => (prop && url ? `https://search.google.com/search-console/inspect?resource_id=${encodeURIComponent(prop)}&id=${encodeURIComponent(url)}` : '');
+  const REQ = 'In Search Console → URL Inspection, paste the page URL, press "Test live URL" (it must say "URL is available to Google"), then press "Request indexing".';
+  const WAIT = 'Wait a few days to 2 weeks, then look at the next Daily report: this problem disappears once Google has re-checked the page.';
+  /** Plain step-by-step instructions for one problem group on site s. */
+  function stepsFor(gr, s) {
+    const t = gr.title, host = s.host, repo = repoPath(host) ? `\`${repoPath(host)}\`` : `the ${host} repo`;
+    const many = gr.items.length > 1, pg = many ? 'each page in the list' : (gr.items[0].url || `https://${host}/`);
+    const has = (re) => re.test(t);
+    if (has(/target keywords not in Google/i)) return [
+      `First make sure the site is in Google at all: open Google Search → Index status for ${host}. If the home page is not indexed, fix that first — nothing can rank before it is indexed.`,
+      'Pick the best page for each phrase (usually the home page for the main phrase, a tool or feature page for the others).',
+      `In ${repo}, put the main phrase at the start of that page's <title> (under 60 characters) and in its meta description (under 155 characters).`,
+      'Use the phrase in the H1. Use the other phrases as H2 headings, each with 2–3 sentences of helpful text under it — an FAQ section ("How do I …?") works well.',
+      'Link to that page from the home page, the menu and the CodeLove network footer, using the phrase as the link text.',
+      `Keep the page in sitemap.xml, deploy, then request indexing: ${REQ}`,
+      'Give it 2–4 weeks, then check Google Search → Not showing. If a phrase still gets nothing, nobody may search it: replace it in config.js → searchKeywords with a phrase people really use (Dashboard → Target keywords shows suggestions).',
+    ];
+    if (has(/^Not in Search Console/)) return [
+      'Open search.google.com/search-console → Add property → Domain → type codelove.in (one Domain property covers every subdomain).',
+      'Verify it with the DNS TXT record Google shows (add it at your domain registrar).',
+      `Open the new property → Sitemaps → submit https://${host}/sitemap.xml.`,
+      'Generate the report again the next day.',
+    ];
+    if (has(/Search Console data could not be read/)) return [
+      'Open the account menu (top right) and press Reconnect Google, or sign in with the account that owns the Search Console property.',
+      'Check that this Google account is listed in Search Console → Settings → Users and permissions.',
+      'Generate the report again.',
+    ];
+    if (has(/sitemap/i) && !has(/^Add to sitemap/)) return [
+      `Open https://${host}/sitemap.xml in a browser: it must load (no error page) and list every public page as a full https://${host}/… URL.`,
+      `If it is missing or wrong, add or fix sitemap.xml in ${repo} (in public/, or generated at build time) and add the line "Sitemap: https://${host}/sitemap.xml" to robots.txt.`,
+      'Deploy, then open Search Console → Sitemaps and submit (or resubmit) the sitemap URL.',
+      'The status there must say "Success". If it lists errors, open them: usually a URL on another host, a redirect, or a page that returns 404.',
+    ];
+    if (has(/Get it crawled|never seen/i)) return [
+      `Make sure ${pg} is listed in sitemap.xml in ${repo}.`,
+      'Link to it from pages that are already in Google (home page, menu, footer, related pages) with descriptive link text — Google finds pages mostly through links.',
+      'Resubmit the sitemap in Search Console → Sitemaps, and press "Ping IndexNow" on the Index status page.',
+      many ? 'Request indexing for the most important pages first (Google allows about 10 requests a day): ' + REQ : REQ,
+      WAIT,
+    ];
+    if (has(/Make the content unique/)) return [
+      `Open the source of ${pg} in ${repo}.`,
+      'Give it its own <title> and meta description — not the same as any other page.',
+      'Add real, unique text (300+ words): what the page/tool does, how to use it step by step, and 3–5 FAQs. Do not copy text from other pages.',
+      'Add an H1 and H2 headings that match what people search for.',
+      'Link to it from related pages that are already indexed.',
+      many ? `If these are many near-identical generated pages, keep only the useful ones in sitemap.xml and add <meta name="robots" content="noindex"> to the thin ones — Google ignores thin pages anyway. Then request indexing for the best pages (about 10 a day): ${REQ}` : REQ,
+      WAIT,
+    ];
+    if (has(/Duplicate/)) return [
+      'Decide which URL is the main version of this content.',
+      `On ${pg}: either make the content clearly different, or add <link rel="canonical" href="(main URL)"> pointing at the main version.`,
+      'Use only the main URL in sitemap.xml and in internal links.',
+      REQ,
+    ];
+    if (has(/canonical/i)) return [
+      `View the source of ${pg}: its <link rel="canonical"> must point to its own final URL (https, same trailing slash as in sitemap.xml).`,
+      'Make sitemap.xml and internal links use exactly that same URL.',
+      'If the page is almost the same as the URL Google picked instead, make it more distinct (own title, H1 and text).',
+      REQ,
+    ];
+    if (has(/noindex/i)) return [
+      `In ${repo}, search the page and the layout for "noindex" (a <meta name="robots"> tag, or an X-Robots-Tag header in the hosting config).`,
+      'Remove it for this page (keep noindex only on pages that should stay out of Google).',
+      `Deploy, then: ${REQ}`,
+    ];
+    if (has(/^Add to sitemap/)) return [
+      `Add ${many ? 'each listed URL' : pg} to sitemap.xml in ${repo} (with a <lastmod> date).`,
+      'Deploy, then resubmit the sitemap in Search Console → Sitemaps.',
+    ];
+    if (has(/Page 2 → 1|Best spot is page/)) return [
+      'Note the search phrase in the problem text: that is what people type.',
+      `Put that phrase at the start of the <title> and in the H1 of ${pg}.`,
+      'Add a section (H2 + a short paragraph) that answers that search directly, better than the pages above you.',
+      'Add links to this page from your other pages with that phrase as the link text.',
+      'Check the position in Google Search → Keywords after 1–2 weeks.',
+    ];
+    if (has(/Rewrite title/)) return [
+      'Search that phrase in Google and look at how your result appears next to the others.',
+      'Rewrite the <title> (under 60 characters): start with the phrase, then a clear benefit (e.g. "Free, no sign-up").',
+      'Rewrite the meta description (under 155 characters): say exactly what the visitor gets on the page.',
+      'Deploy. The click rate (CTR) change shows in Google Search → Pages after 1–2 weeks.',
+    ];
+    if (has(/mobile/i)) return [
+      `Open ${pg} on a phone (or Chrome DevTools → device toolbar).`,
+      'Fix what is listed: text too small, buttons too close together, content wider than the screen; the page needs <meta name="viewport" content="width=device-width, initial-scale=1">.',
+      REQ,
+    ];
+    if (has(/Soft 404/)) return [
+      `Open ${pg} directly (not by clicking inside the site): it must show real content straight away, not "Loading…" or "Not found".`,
+      'If the page should not exist, make it return a real 404 and remove it from sitemap.xml and internal links.',
+      REQ,
+    ];
+    if (has(/^404/)) return [
+      `Open ${pg}.`,
+      'If the page should exist: fix the route or deploy it again. If it was moved: add a 301 redirect to the new URL.',
+      'If it is gone for good: remove it from sitemap.xml and every internal link, then resubmit the sitemap.',
+    ];
+    if (has(/40[13]|Server error/)) return [
+      `Open ${pg} in a private window: it must load without a login or error.`,
+      'Check the hosting / firewall / Cloudflare rules that may block Googlebot, and fix them.',
+      REQ,
+    ];
+    if (has(/Redirect/)) return [
+      'Find the final URL the page redirects to.',
+      'Use that final URL in sitemap.xml and every internal link; remove redirect chains and loops.',
+    ];
+    if (has(/robots\.txt/)) return [
+      `Open https://${host}/robots.txt and remove the Disallow line that matches ${pg}.`,
+      `Deploy, then: ${REQ}`,
+    ];
+    if (has(/Not checked yet/)) return ['Nothing to fix yet. Google allows a limited number of checks a day; the next report checks these pages. You can also press Check on Google Search → Index status.'];
+    if (has(/No visits recorded/)) return [
+      `Open https://${host}/ to confirm the site is live.`,
+      'View the page source and check that <script defer src="https://admin.codelove.in/t.js"></script> is in the <head>.',
+      'If it is, the site simply has no visitors yet: share it and link to it from the other CodeLove sites.',
+    ];
+    return [gr.detail, REQ];
+  }
+  // A self-contained prompt for one problem group, for an AI chat.
+  function groupPrompt(rep, s, gr) {
+    const L = [`Fix this SEO problem on ${s.host} (from the CodeLove Daily report of ${fmtDate(rep.date)}).`, ''];
+    L.push(`- Site: ${s.url}`, `- Repo: \`${repoPath(s.host) || 'unknown'}\``);
+    if (s.gsc) L.push(`- Search Console property: ${s.gsc.prop}`);
     L.push('');
+    groupMd(s, gr, 1, L);
+    L.push('', 'Make the code changes in the repo. Keep canonical URLs, internal links and sitemap.xml consistent and don\'t break other pages. At the end, list what I must do myself in Google Search Console (e.g. Request indexing, resubmit sitemap) and summarise what you changed.');
+    return L.join('\n');
+  }
+  function sitePrompt(rep, s) {
+    const L = [`# Fix SEO problems on ${s.host} · Daily report ${fmtDate(rep.date)}`, '', '> **Task:** Fix the problems below in the repo, most important first. Keep canonical URLs, internal links and sitemap.xml consistent. At the end, list what I must do myself in Google Search Console and summarise what you changed.'];
+    siteMd(s, L);
     return L.join('\n');
   }
 
@@ -346,7 +526,8 @@
   }
   function wireJob() {
     const s = $('#repStop'); if (s) s.onclick = () => { if (job) { job.stop = true; drawJob(); } };
-    const r = $('#repRetry'); if (r) r.onclick = () => { job = null; rerender(); };
+    // "Try again" runs the report again straight away (it is a click, so a Google renew may open its window)
+    const r = $('#repRetry'); if (r) r.onclick = () => { const site = job ? job.site : null; job = null; startGenerate(site, true); };
   }
 
   // Generate: Google must be ready first (this runs inside the click, so a silent renew may open Google's window).
@@ -364,11 +545,13 @@
       if (!gAuth.has(G.SCOPE)) { flash('Search Console access is needed for the report. Press Generate again and allow it on the Google screen.'); return; }
     }
     job = { site, phase: 1, msg: '', done: 0, total: 0, stop: false, error: '', startedAt: Date.now() };
+    const empty = $('#repEmpty'); if (empty) empty.remove(); // the "No report yet" card goes away while it runs
+    const gen = $('#repGen'); if (gen) gen.disabled = true;
     const slot = $('#repJobSlot'); if (slot) { slot.innerHTML = jobCard(); wireJob(); }
     try {
       const rep = await generate(site);
       job = null;
-      if (CL.state().src === 'rep' && CL.state().tab === 'overview') rerender();
+      if (CL.state().src === 'rep' && CL.state().tab === 'daily') rerender();
     } catch (e) {
       job.error = e.reconnect ? 'Google access expired while the report was running. Press "Try again".' : e.message;
       drawJob();
@@ -387,9 +570,30 @@
     $('#repKeep').onclick = () => { slot.innerHTML = ''; };
   }
 
+  // Opens the report as a plain text document in a new tab (like opening a .txt file). The tab is opened straight
+  // from the click (so the browser allows it) and filled once the text is ready.
+  function openText(title, getMd) {
+    const w = window.open('', '_blank');
+    if (!w) { alert('The browser blocked the new tab. Allow pop-ups for this site and try again.'); return; }
+    const page = (body) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>
+      <style>:root{color-scheme:light dark}body{margin:0;background:#fbfbfc;color:#1d2026}@media (prefers-color-scheme:dark){body{background:#0e0f12;color:#e6e8ec}}
+      .bar{position:sticky;top:0;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 20px;background:inherit;border-bottom:1px solid rgba(128,128,128,.25);font:600 13px system-ui,sans-serif}
+      button{font:600 13px system-ui,sans-serif;padding:7px 14px;border-radius:8px;border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit;cursor:pointer}
+      pre{margin:0 auto;max-width:1100px;padding:24px 20px 60px;white-space:pre-wrap;word-break:break-word;font:13.5px/1.6 ui-monospace,Consolas,Menlo,monospace}</style></head>
+      <body>${body}</body></html>`;
+    w.document.write(page('<pre>Loading…</pre>')); w.document.close();
+    Promise.resolve(typeof getMd === 'function' ? getMd() : getMd).then((md) => {
+      w.document.open();
+      w.document.write(page(`<div class="bar"><span>${esc(title)}</span><span><button id="c">Copy all</button> <button id="d">Download .md</button></span></div><pre>${esc(md || 'Report not found.')}</pre>`));
+      w.document.close();
+      w.document.getElementById('c').onclick = (e) => w.navigator.clipboard.writeText(md).then(() => { e.target.textContent = 'Copied'; });
+      w.document.getElementById('d').onclick = () => { const a = w.document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' })); a.download = title.replace(/[^\w.-]+/g, '-') + '.md'; a.click(); };
+    }, (e) => { w.document.open(); w.document.write(page(`<pre>Couldn't load the report: ${esc(e.message)}</pre>`)); w.document.close(); });
+  }
+
   function actionsBar(rep, md) {
     return `<section class="card rep-actions"><div class="ra-text"><b>Copy for AI</b><span class="note">Self-contained Markdown: every problem with page URL, Google's exact status, suggested fix and the repo folder. Paste it into an AI chat to get the fixes.</span></div>
-      <div class="ra-btns"><button type="button" class="btn primary lg" id="repCopy">${icon('copy')}Copy for AI</button><button type="button" class="btn lg" id="repDl">${icon('download')}Download .md</button><button type="button" class="btn lg" id="repText">${icon('file')}Show text</button></div>
+      <div class="ra-btns"><button type="button" class="btn primary lg" id="repCopy">${icon('copy')}Copy for AI</button><button type="button" class="btn lg" id="repOpen">${icon('ext')}Open as text</button><button type="button" class="btn lg" id="repDl">${icon('download')}Download .md</button><button type="button" class="btn lg" id="repText">${icon('file')}Show text</button></div>
       <pre class="code md-text" id="repMd" hidden></pre></section>`;
   }
   function wireActions(rep, md) {
@@ -405,21 +609,39 @@
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })), download: `codelove-report-${rep.id}.md` });
       document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     };
+    $('#repOpen').onclick = () => openText(`CodeLove report ${rep.id}`, md);
     $('#repText').onclick = (e) => { const pre = $('#repMd'); pre.hidden = !pre.hidden; e.currentTarget.lastChild.textContent = pre.hidden ? 'Show text' : 'Hide text'; };
   }
 
-  function siteSection(s, open) {
+  const SHOW_GROUPS = 5; // problem groups shown per site before "Show all"
+  function groupHtml(s, gr, si, gi) {
+    const n = gr.items.length, one = n === 1 ? gr.items[0] : null, prop = s.gsc && s.gsc.prop;
+    const pageLink = (p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.url.replace(/^https?:\/\//, ''))}</a>`;
+    const steps = stepsFor(gr, s);
+    const ins = one && inspectUrl(prop, one.url);
+    return `<li class="prob k-${gr.sev}"${gi >= SHOW_GROUPS ? ' data-more hidden' : ''}>
+      <div class="prob-top">${sevPill(gr.sev)}<b>${esc(gr.title)}</b>${n > 1 ? `<span class="gp deep">${num(n)} pages</span>` : one.url ? pageLink(one) : ''}
+        <span class="prob-acts">${ins ? `<a class="btn sm" href="${esc(ins)}" target="_blank" rel="noopener" title="Open this page in Search Console URL Inspection">${icon('ext')}Search Console</a>` : ''}<button type="button" class="btn sm pcopy" data-si="${si}" data-gi="${gi}" title="Copy only this fix, with steps, for an AI chat">${icon('copy')}Copy fix</button></span></div>
+      ${one && one.status ? `<div class="prob-status">${esc(one.status)}${one.impr ? ` · ${num(one.impr)} impressions` : ''}</div>` : ''}
+      <div class="prob-fix">${esc(gr.detail)}</div>
+      ${n > 1 ? `<details class="prob-urls"><summary>Show the ${num(n)} pages</summary><ul class="ix-list">${gr.items.slice(0, 300).map((p) => `<li>${p.url ? pageLink(p) : '<span class="muted">site-wide</span>'}${p.impr ? `<span class="muted">${num(p.impr)} impr.</span>` : ''}${prop && p.url ? `<a class="muted" href="${esc(inspectUrl(prop, p.url))}" target="_blank" rel="noopener">Inspect</a>` : ''}</li>`).join('')}${n > 300 ? `<li class="muted">…and ${num(n - 300)} more (in Copy fix)</li>` : ''}</ul></details>` : ''}
+      <details class="howto"${gi === 0 ? ' open' : ''}><summary>${icon('check')}What to do · ${steps.length} step${steps.length > 1 ? 's' : ''}</summary><ol>${steps.map((x) => `<li>${esc(x.replace(/`/g, ''))}</li>`).join('')}</ol></details>
+    </li>`;
+  }
+  function siteSection(s, open, si) {
     const g = s.gsc, t = s.traffic;
     const fix = s.problems.filter((p) => p.sev === 'fix').length, win = s.problems.filter((p) => p.sev === 'win').length;
     const probs = s.problems.filter((p) => p.title !== 'Not checked yet');
     const unk = s.problems.length - probs.length;
+    const groups = groupProbs(probs);
     const kwRows = g ? g.top.slice(0, 8) : [];
     return `<details class="card rep-site"${open ? ' open' : ''}><summary class="rs-head">
         <span class="rs-title">${favicon(s.host)}<span><b>${esc(s.host)}</b>${s.repo ? `<span class="repo-chip" title="${esc(repoPath(s.host))}">${icon('code')}${esc(s.repo)}</span>` : ''}</span></span>
         <span class="rs-counts">${fix ? `<span class="gp none">${fix} to fix</span>` : ''}${win ? `<span class="gp p23">${win} to improve</span>` : ''}${!fix && !win ? '<span class="gp p1">All good</span>' : ''}${icon('chev', 'rs-chev')}</span></summary>
       <div class="rs-body">
-        <div class="rs-sub">Problems${probs.length ? ` · ${probs.length}` : ''}</div>
-        ${probs.length ? `<ol class="probs">${probs.map((p) => `<li class="prob k-${p.sev}"><div class="prob-top">${sevPill(p.sev)}<b>${esc(p.title)}</b>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.url.replace(/^https?:\/\//, ''))}</a>` : ''}</div>${p.status ? `<div class="prob-status">${esc(p.status)}${p.impr ? ` · ${num(p.impr)} impressions` : ''}</div>` : ''}<div class="prob-fix">${esc(p.detail)}</div></li>`).join('')}</ol>` : '<p class="empty">No problems found.</p>'}
+        <div class="rs-subrow"><div class="rs-sub">Problems${probs.length ? ` · ${num(groups.length)} kind${groups.length === 1 ? '' : 's'}, ${num(probs.length)} in total` : ''}</div>
+          ${probs.length ? `<button type="button" class="btn sm scopy" data-si="${si}" title="Copy every problem of this site, with steps, for an AI chat">${icon('copy')}Copy this site for AI</button>` : ''}</div>
+        ${groups.length ? `<ol class="probs">${groups.map((gr, gi) => groupHtml(s, gr, si, gi)).join('')}</ol>${groups.length > SHOW_GROUPS ? `<button type="button" class="btn sm gmore">Show all ${num(groups.length)} problems</button>` : ''}` : '<p class="empty">No problems found.</p>'}
         ${unk ? `<p class="note">${unk} page${unk > 1 ? 's' : ''} not checked with Google yet (daily quota); the next report checks them.</p>` : ''}
         <div class="rs-grid">
           ${g ? `<div class="rs-col"><div class="rs-sub">Google Search</div>
@@ -455,10 +677,27 @@
       + `<div class="stat-grid">${tile('To fix', num(T.fix), 'problems that block indexing', T.fix ? 'bad' : 'good')}${tile('To improve', num(T.win), 'ranking quick wins')}${tile('Indexed', num(T.indexed), `${num(T.notIndexed)} not indexed · ${num(T.unchecked)} not checked`)}${tile('Clicks', num(T.clicks), deltaHtml(T.clicks, T.prevClicks))}${tile('Impressions', num(T.impr), deltaHtml(T.impr, T.prevImpr))}${tile('Visitors', num(T.visitors), deltaHtml(T.visitors, T.prevVisitors))}</div>`
       + actionsBar(rep, md)
       + `<p class="note rep-meta">${esc(rangeTextOf(rep))} · made ${esc(when(rep.createdAt))} · index checks this run: ${num(c.done - c.failed)} of ${num(c.queued)}${c.failed ? ` (${num(c.failed)} failed)` : ''}${c.wanted > c.queued ? ` · ${num(c.wanted - c.queued)} pages wait for tomorrow's quota` : ''}${c.stopped ? ' · stopped early' : ''}</p>`
-      + `<div class="section-title"><h2>Sites</h2><span class="note">Most problems first · click a site to open or close it</span></div>`
-      + order.map((s, i) => siteSection(s, order.length === 1 || (i < 3 && s.problems.some((p) => p.sev === 'fix')))).join(''));
+      + `<div class="section-title"><h2>Sites</h2><span class="ph-actions"><span class="note">Most problems first</span><button type="button" class="btn sm" id="repOpenAll">Expand all</button><button type="button" class="btn sm" id="repCloseAll">Collapse all</button></span></div>`
+      + `<div id="repSites">${order.map((s, i) => siteSection(s, true, i)).join('')}</div>`);
     wireActions(rep, md);
     wireJob();
+    const box = $('#repSites');
+    $('#repOpenAll').onclick = () => $$('.rep-site', box).forEach((d) => { d.open = true; });
+    $('#repCloseAll').onclick = () => $$('.rep-site', box).forEach((d) => { d.open = false; });
+    const copy = async (b, text, label) => {
+      try { await navigator.clipboard.writeText(text); } catch {
+        const ta = Object.assign(document.createElement('textarea'), { value: text }); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      }
+      b.innerHTML = `${icon('check')}Copied`; setTimeout(() => { b.innerHTML = `${icon('copy')}${label}`; }, 2000);
+    };
+    box.addEventListener('click', (e) => {
+      const pc = e.target.closest('.pcopy');
+      if (pc) { const s = order[+pc.dataset.si]; const gr = groupProbs(s.problems.filter((p) => p.title !== 'Not checked yet'))[+pc.dataset.gi]; copy(pc, groupPrompt(rep, s, gr), 'Copy fix'); return; }
+      const sc = e.target.closest('.scopy');
+      if (sc) { copy(sc, sitePrompt(rep, order[+sc.dataset.si]), 'Copy this site for AI'); return; }
+      const gm = e.target.closest('.gmore');
+      if (gm) { gm.closest('.rs-body').querySelectorAll('.probs > [data-more]').forEach((li) => { li.hidden = false; }); gm.remove(); }
+    });
   }
   const rangeTextOf = (rep) => `${rep.range.label}: ${fmtDate(rep.range.start)} – ${fmtDate(rep.range.end)}`;
 
@@ -474,7 +713,7 @@
     const latest = meta ? meta : list.find((m) => (m.site || '') === (site || ''));
     const head = pageHead(EYEBROW, site ? `Daily report · ${esc(site)}` : 'Daily report', `SEO, indexing and traffic for ${site ? 'this site' : 'every site'}: problems first, with what to do · uses the date range above`, genButton(site));
     if (!latest) {
-      paint(head + '<div id="repJobSlot">' + jobCard() + '</div>' + (job ? '' : msgCard('file', 'No report yet', `Press <b>Generate report</b>. It reads traffic and Search Console, re-checks pages whose index status is older than 3 days (within Google's daily limit), lists every problem with the fix, and saves it to History.`)));
+      paint(head + '<div id="repJobSlot">' + jobCard() + '</div>' + (job ? '' : `<div id="repEmpty">${msgCard('file', 'No report yet', `Press <b>Generate report</b>. It reads traffic and Search Console, re-checks pages whose index status is older than 3 days (within Google's daily limit), lists every problem with the fix, and saves it to History.`)}</div>`));
       wireGen(site); wireJob();
       return;
     }
@@ -497,7 +736,7 @@
   async function viewHistory(alive) {
     const list = await listMetas();
     if (!alive()) return;
-    paint(pageHead(EYEBROW, 'History', `${num(list.length)} saved report${list.length === 1 ? '' : 's'} · one per day (and per site when a site was picked)`, `<div class="ph-actions"><a class="btn primary" href="${link('')}">${icon('refresh')}Today's report</a></div>`));
+    paint(pageHead(EYEBROW, 'History', `${num(list.length)} saved report${list.length === 1 ? '' : 's'} · one per day (and per site when a site was picked)`, `<div class="ph-actions"><a class="btn primary" href="${link('daily')}">${icon('refresh')}Today's report</a></div>`));
     const card = el('section', 'card', '<div class="tbl"></div>');
     app.append(card);
     CL.table($('.tbl', card), [
@@ -509,10 +748,12 @@
       { key: 'indexed', label: 'Indexed / not', num: true, html: (m) => `${num(m.summary?.indexed)} <span class="muted">/ ${num(m.summary?.notIndexed)}</span>` },
       { key: 'clicks', label: 'Clicks', num: true, html: (m) => num(m.summary?.clicks) },
       { key: 'visitors', label: 'Visitors', num: true, html: (m) => num(m.summary?.visitors) },
-      { key: 'act', label: '', html: (m) => `<span class="row-actions"><a class="btn sm" href="${link('view', `id=${encodeURIComponent(m.id)}`)}">Open</a><button type="button" class="btn sm hcopy" data-id="${esc(m.id)}">${icon('copy')}Copy</button>${(() => { const top = list.find((x) => (x.site || '') === (m.site || '')); return top && top.id !== m.id ? `<a class="btn sm" href="${link('compare', `a=${encodeURIComponent(top.id)}&b=${encodeURIComponent(m.id)}`)}" title="Compare with the newest report">Compare</a>` : ''; })()}</span>` },
+      { key: 'act', label: '', html: (m) => `<span class="row-actions"><a class="btn sm" href="${link('view', `id=${encodeURIComponent(m.id)}`)}">Open</a><button type="button" class="btn sm htext" data-id="${esc(m.id)}" title="Open the full report as a text file in a new tab">${icon('file')}Text</button><button type="button" class="btn sm hcopy" data-id="${esc(m.id)}">${icon('copy')}Copy</button>${(() => { const top = list.find((x) => (x.site || '') === (m.site || '')); return top && top.id !== m.id ? `<a class="btn sm" href="${link('compare', `a=${encodeURIComponent(top.id)}&b=${encodeURIComponent(m.id)}`)}" title="Compare with the newest report">Compare</a>` : ''; })()}</span>` },
     ], list.map((m) => ({ ...m, fix: m.summary?.fix || 0, win: m.summary?.win || 0, indexed: m.summary?.indexed || 0, clicks: m.summary?.clicks || 0, visitors: m.summary?.visitors || 0 })), { sort: 'date' });
-    if (!list.length) $('.tbl', card).innerHTML = `<p class="empty">No reports saved yet. <a href="${link('')}">Generate the first one</a>.</p>`;
+    if (!list.length) $('.tbl', card).innerHTML = `<p class="empty">No reports saved yet. <a href="${link('daily')}">Generate the first one</a>.</p>`;
     card.addEventListener('click', async (e) => {
+      const t = e.target.closest('.htext');
+      if (t) { openText(`CodeLove report ${t.dataset.id}`, () => loadReport(t.dataset.id).then((got) => got && got.md)); return; }
       const b = e.target.closest('.hcopy'); if (!b) return;
       const got = await loadReport(b.dataset.id);
       if (got) { try { await navigator.clipboard.writeText(got.md); b.lastChild.textContent = 'Copied'; } catch { b.lastChild.textContent = 'Copy failed'; } }
@@ -564,7 +805,8 @@
       if (tab === 'history') await viewHistory(alive);
       else if (tab === 'view') await viewOne(alive, params.get('id'));
       else if (tab === 'compare') await viewCompare(alive, params.get('a'), params.get('b'));
-      else await viewToday(R, alive, site);
+      else if (tab === 'daily') await viewToday(R, alive, site);
+      else await DASH.view({ R, alive, site });
     } catch (e) {
       if (!alive()) return;
       const denied = /permission|insufficient/i.test(e.message);
@@ -585,12 +827,13 @@
         todayKnown = { day, exists: !!(await getMeta(idFor(day, null))) };
       }
       if (todayKnown.exists || !alive() || $('.rep-banner', root)) return;
-      const b = el('div', 'banner rep-banner', `${icon('file')}<div class="rb-text"><b>Today's report isn't generated yet.</b> SEO, indexing and traffic problems for every site, ready to paste into an AI chat.</div><a class="btn primary sm" href="${link('')}">Generate</a><button type="button" class="icon-btn sm-x" aria-label="Hide for today">${icon('x')}</button>`);
+      const b = el('div', 'banner rep-banner', `${icon('file')}<div class="rb-text"><b>Today's report isn't generated yet.</b> SEO, indexing and traffic problems for every site, ready to paste into an AI chat.</div><a class="btn primary sm" href="${link('daily')}">Generate</a><button type="button" class="icon-btn sm-x" aria-label="Hide for today">${icon('x')}</button>`);
       const head = $('.page-head', root);
       if (head) head.after(b); else root.prepend(b);
       $('.sm-x', b).onclick = () => { CL.store.set('cl_rep_banner_off', day); b.remove(); };
     } catch { /* rules not deployed or offline: no banner */ }
   }
 
-  window.REP = { route, banner, clear: () => { metas = null; bodies.clear(); todayKnown = null; }, stop: () => {}, toMarkdown, compare };
+  window.REP = { route, banner, clear: () => { metas = null; bodies.clear(); todayKnown = null; }, stop: () => {}, toMarkdown, compare,
+    lib: { listMetas, loadReport, idFor, today, repoPath } };
 })();

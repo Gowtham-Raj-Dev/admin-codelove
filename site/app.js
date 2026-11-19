@@ -2,24 +2,27 @@
  *   #/...        CodeLove Analytics (our own tracker, Firestore)  -> own.js
  *   #/ga/...     Google Analytics 4                               -> ga.js
  *   #/search/... Google Search (Search Console keywords)          -> gsc.js
- *   #/reports... Daily SEO/indexing/traffic report + History        -> report.js
+ *   #/reports    Dashboard: every site at a glance + suggestions       -> dash.js
+ *   #/reports/…  Daily SEO/indexing/traffic report + History         -> report.js
  * Routes: #/  #/pages  #/live  #/tracker  #/ga  #/ga/pages  #/ga/live  #/search  #/search/pages  #/search/index  #/search/missing
- *         #/reports  #/reports/history  #/reports/view?id=…  #/reports/compare?a=…&b=…
+ *         #/reports  #/reports/daily  #/reports/history  #/reports/view?id=…  #/reports/compare?a=…&b=…
  * Site filter: #/site/<host> (overview of one site) or ?site=<host> on the other tabs. */
 (() => {
   'use strict';
-  const { $, store, esc, icon, favicon, popover, closePop, PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, shortRange, hideTip, iso, istToday } = CL;
+  const { $, $$, store, esc, icon, favicon, popover, closePop, PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, shortRange, hideTip, iso, istToday } = CL;
   const CFG = window.ADMIN_CONFIG || {};
   const SITES = CFG.sites || [];
   let renderId = 0;
   let state = { src: 'own', tab: 'overview', site: null };
 
   const NAV = [
-    { src: 'rep', title: 'Reports', ic: 'calendar', items: [['overview', 'Daily report', 'file'], ['history', 'History', 'calendar']] },
-    { src: 'own', title: 'CodeLove Analytics', ic: 'heart', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live'], ['tracker', 'Tracker', 'code']] },
-    { src: 'ga', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live']] },
-    { src: 'gsc', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'file'], ['index', 'Index status', 'check'], ['missing', 'Not showing', 'eyeoff']] },
+    { src: 'rep', tabLabel: 'Dashboard', title: 'Dashboard', ic: 'grid', items: [['overview', 'Overview', 'grid'], ['daily', 'Daily report', 'file'], ['history', 'History', 'calendar']] },
+    { src: 'own', tabLabel: 'Analytics', title: 'CodeLove Analytics', ic: 'heart', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live'], ['tracker', 'Tracker', 'code']] },
+    { src: 'ga', tabLabel: 'Google Analytics', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live']] },
+    { src: 'gsc', tabLabel: 'Google Search', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'file'], ['index', 'Index status', 'check'], ['missing', 'Not showing', 'eyeoff']] },
   ];
+  // Last sub-page opened in each section, so going back to a tab returns to where you were.
+  const lastTab = {};
   const BASE = { own: '#', ga: '#/ga', gsc: '#/search', rep: '#/reports' };
   const SECTION = { own: () => OWN, ga: () => GA, gsc: () => GSC, rep: () => REP };
 
@@ -37,7 +40,7 @@
     else if (path.startsWith('/tracker') && src === 'own') tab = 'tracker';
     else if (path.startsWith('/missing') && src === 'gsc') tab = 'missing';
     else if (path.startsWith('/index') && src === 'gsc') tab = 'index';
-    else if (src === 'rep') for (const t of ['history', 'view', 'compare']) if (path.startsWith('/' + t)) tab = t;
+    else if (src === 'rep') for (const t of ['daily', 'history', 'view', 'compare']) if (path.startsWith('/' + t)) tab = t;
     if (site) site = site.toLowerCase().replace(/[^a-z0-9.-]/g, '') || null;
     return { src, tab, site, params };
   }
@@ -58,12 +61,45 @@
     const sc = src === 'ga' ? CL.GA_SCOPE : CL.GSC_SCOPE;
     return CL.gAuth.has(sc) ? ['on', 'Connected'] : CL.gAuth.known(sc) ? ['warn', 'Needs reconnect'] : ['off', 'Not connected'];
   }
-  function renderNav() {
-    $('#nav').innerHTML = NAV.map((g) => `<div class="nav-group"><div class="nav-label">${icon(g.ic)}<span>${esc(g.title)}</span>${srcState(g.src) ? `<span class="nav-dot ${srcState(g.src)[0]}" title="${esc(srcState(g.src)[1])}"></span>` : ''}</div>${g.items.map(([tab, label, ic]) => {
-      const on = state.src === g.src && (state.tab === tab || (tab === 'history' && (state.tab === 'view' || state.tab === 'compare')));
-      return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
-    }).join('')}</div>`).join('');
+  const dot = (src) => { const s = srcState(src); return s ? `<span class="nav-dot ${s[0]}" title="${esc(s[1])}"></span>` : ''; };
+  // Top tabs pick the section; the sidebar lists only that section's pages.
+  function renderTabs() {
+    $('#sections').innerHTML = NAV.map((g) => {
+      const on = state.src === g.src;
+      const tab = lastTab[g.src] && lastTab[g.src] !== 'view' && lastTab[g.src] !== 'compare' ? lastTab[g.src] : 'overview';
+      return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="sec-tab${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}>${icon(g.ic)}<span>${esc(g.tabLabel)}</span>${dot(g.src)}</a>`;
+    }).join('');
   }
+  // Sidebar: every section as an accordion group, only one open at a time (the current section opens by itself).
+  let openSrc = null;
+  const ACC_COLOR = { rep: '#7c7cf5', own: '#ec5f9e', ga: '#f2a33a', gsc: '#2fbf71' };
+  function renderNav() {
+    if (openSrc === null) openSrc = state.src;
+    $('#nav').innerHTML = NAV.map((g) => {
+      const open = openSrc === g.src, cur = state.src === g.src;
+      const st = srcState(g.src);
+      const sub = st ? `<span class="acc-sub"><span class="nav-dot ${st[0]}"></span>${esc(st[1])}</span>` : `<span class="acc-sub">${g.items.length} pages</span>`;
+      return `<div class="nav-group acc${open ? ' open' : ''}${cur ? ' cur' : ''}" data-src="${g.src}" style="--c:${ACC_COLOR[g.src]}">
+        <button type="button" class="acc-head" aria-expanded="${open}" aria-controls="acc-${g.src}"><span class="acc-ic">${icon(g.ic)}</span><span class="acc-title"><span class="acc-name">${esc(g.title)}</span>${sub}</span>${icon('chev', 'acc-chev')}</button>
+        <div class="acc-body" id="acc-${g.src}"><div class="acc-inner">${g.items.map(([tab, label, ic]) => {
+          const on = cur && (state.tab === tab || (tab === 'history' && (state.tab === 'view' || state.tab === 'compare')));
+          return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}${open ? '' : ' tabindex="-1"'}>${icon(ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
+        }).join('')}</div></div></div>`;
+    }).join('');
+    renderTabs();
+  }
+  $('#nav').addEventListener('click', (e) => {
+    const h = e.target.closest('.acc-head');
+    if (!h) return;
+    const src = h.parentElement.dataset.src;
+    openSrc = openSrc === src ? '' : src; // open this one, close the others (click again to close it)
+    $$('#nav .acc').forEach((g) => {
+      const open = g.dataset.src === openSrc;
+      g.classList.toggle('open', open);
+      $('.acc-head', g).setAttribute('aria-expanded', String(open));
+      g.querySelectorAll('.nav-item').forEach((a) => (open ? a.removeAttribute('tabindex') : a.setAttribute('tabindex', '-1')));
+    });
+  });
   const openNav = (open) => document.body.classList.toggle('nav-open', open);
   $('#menuBtn').innerHTML = icon('menu');
   $('#sideClose').innerHTML = icon('x');
@@ -78,7 +114,7 @@
     const R = currentRange();
     const rb = $('#rangeBtn'), sb = $('#siteBtn');
     rb.innerHTML = `${icon('calendar')}<span class="dd-text"><b>${esc(rangeLabel())}</b><span class="dd-sub">${esc(shortRange(R.start, R.end))}</span></span>${icon('chev')}`;
-    const repOther = state.src === 'rep' && state.tab !== 'overview';
+    const repOther = state.src === 'rep' && ['history', 'view', 'compare'].includes(state.tab);
     rb.disabled = state.tab === 'live' || state.tab === 'tracker' || repOther;
     rb.title = rb.disabled ? (repOther ? 'Saved reports keep the range they were made with' : 'Live and Tracker are not date based') : '';
     sb.innerHTML = `${state.site ? favicon(state.site) : icon('globe')}<span class="dd-text"><b>${esc(state.site || 'All sites')}</b></span>${icon('chev')}`;
@@ -189,6 +225,17 @@
     on('signoutBtn', () => { close(false); GA.signOut(); GSC.clear(); OWN.signOut(); route(); });
   }, { align: 'end' }));
   CL.gAuth.onChange(() => { renderNav(); renderAccount(); });
+
+  // Keep Google connected without asking: Google tokens last 1 hour and the browser only lets the (self-closing,
+  // no-consent) renew window open right after a click. So the first click anywhere after expiry renews it quietly.
+  let renewing = false;
+  document.addEventListener('pointerdown', () => {
+    const G = CL.gAuth;
+    if (renewing || G.token() || !(G.known(CL.GA_SCOPE) || G.known(CL.GSC_SCOPE))) return;
+    if (state.src === 'own') return; // CodeLove Analytics doesn't use Google data
+    renewing = true;
+    G.renew(true).then(() => { if (state.src !== 'own') route(); }, () => {}).finally(() => { renewing = false; });
+  }, true);
   // charts read CSS colours at draw time; redraw them when the OS theme flips
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (theme() === 'system') route(); });
 
@@ -200,6 +247,8 @@
     OWN.stop(); GA.stop();
     const prev = state;
     state = parse();
+    lastTab[state.src] = state.tab;
+    openSrc = state.src; // the current section's group is always the open one after a page change
     if (prev.src !== state.src) delete $('#app').dataset.filled; // don't dim one section's page while the other loads
     document.body.dataset.src = state.src;
     renderNav(); renderFilters(); renderAccount();
