@@ -258,10 +258,11 @@
   async function view({ R, alive, site }) {
     loading('Loading dashboard…');
     const hosts = site ? [site] : (CFG.sites || []).slice();
-    const [own, gsc, last] = await Promise.all([
+    const [own, gsc, last, ads] = await Promise.all([
       OWN.lib.load(R, site ? OWN.lib.siteOf(site) : undefined).catch(() => []),
       loadGsc(R, site),
       lastReport(site),
+      site || !window.ADS ? null : ADS.lib.totals(R).catch(() => null),
     ]);
     if (!alive()) return;
     const ownBy = Object.fromEntries(own.map((o) => [o.host, o]));
@@ -294,6 +295,7 @@
           ${tile('Avg position', gOk && pos ? pos.toFixed(1) : dash, gOk && pos && posP ? deltaHtml(pos, posP, { lower: true }) : 'lower is better')}
           ${tile('Targets in Google', gOk ? `${num(tShow)}<span class="stat-of"> / ${num(tTotal)}</span>` : num(tTotal), gOk ? `${Math.round(div(tShow, tTotal) * 100)}% of target keywords` : 'keywords set')}
           ${tile('To fix', num(fixN), `${num(winN)} to improve`, fixN ? 'bad' : 'good')}
+          ${ads ? tile(`<a href="${CL.link({ src: 'ads' })}">AdSense earnings</a>`, ads.money(ads.cur.e), deltaHtml(ads.cur.e, ads.prev.e)) : ''}
         </div>`
       + `<section class="card dash-live" id="dLive"></section>`
       + (last ? '' : `<div class="banner">${icon('file')}<div><b>No Daily report yet.</b> Indexing problems (pages not in Google, sitemap errors) appear here after the first one. <a href="${CL.link({ src: 'rep', tab: 'daily' })}">Generate it →</a></div></div>`)

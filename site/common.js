@@ -124,6 +124,7 @@
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
     alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M16 7l3 3M14 9l2 2"/>',
+    coin: '<circle cx="12" cy="12" r="9"/><path d="M14.6 9.3c-.5-.8-1.4-1.3-2.6-1.3-1.6 0-2.7.8-2.7 2s1.1 1.7 2.7 2 2.8.8 2.8 2.1-1.2 2-2.8 2c-1.2 0-2.2-.5-2.7-1.4M12 6.3v11.4"/>',
     eyeoff: '<path d="M3 3l18 18M10.6 5.1Q11.3 5 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4.2M6.6 6.6C4.4 8 2.8 10.1 2 12c1 2.5 5 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   };
   const icon = (name, cls = '') => `<svg class="ic ic-${name}${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -485,6 +486,8 @@
   const GA_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
   const GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
   const EMAIL_SCOPE = 'https://www.googleapis.com/auth/userinfo.email';
+  // AdSense (read-only) is asked only when the AdSense section is opened the first time, then kept with the rest.
+  const ADS_SCOPE = 'https://www.googleapis.com/auth/adsense.readonly';
   const READ_SCOPES = [GA_SCOPE, GSC_SCOPE, EMAIL_SCOPE];
   const G_KEY = 'cl_google', EARLY = 120e3;
   const gAuth = (() => {
@@ -638,7 +641,7 @@
     $('#' + id).onclick = async (e) => {
       e.currentTarget.disabled = true;
       try {
-        await gAuth.connect();
+        await gAuth.connect(need ? [need] : []);
         if (!gAuth.has(need)) throw new Error('Google did not give the read-only permission this page needs. Press the button again and tick every checkbox on the Google screen.');
         rerender();
       } catch (err) { gSignIn({ eyebrow, title, text, msg: err.code === 'popup_closed' ? '' : err.message, button, help, id, need }); }
@@ -650,6 +653,6 @@
     PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, axisMax,
     icon, favicon, favOk, favErr, popover, closePop, selectMenu,
     showTip, hideTip, lineChart, kpiChart, columns, sparkline, deltaHtml, table, barList,
-    pageHead, loading, paint, el, gAuth, gGate, gReconnect, gSignIn, oauthHelp, G_LOGO, GA_SCOPE, GSC_SCOPE, rerender,
+    pageHead, loading, paint, el, gAuth, gGate, gReconnect, gSignIn, oauthHelp, G_LOGO, GA_SCOPE, GSC_SCOPE, ADS_SCOPE, rerender,
   };
 })();

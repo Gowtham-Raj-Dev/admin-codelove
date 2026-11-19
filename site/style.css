@@ -904,6 +904,33 @@ td.wrap .title { display: block; color: var(--muted); font-size: 12px; }
 .gmore { margin-top: 10px; }
 @media (max-width: 680px) { .prob-acts { margin-left: 0; width: 100%; } }
 
+/* ---------- AdSense ---------- */
+.copy-box { display: flex; flex-direction: column; gap: 10px; }
+.cb-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cb-head b { font-weight: 650; }
+.cb-head .ic { width: 14px; height: 14px; }
+.copy-box .code { margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
+.ad-pub { margin: 12px 0 4px; font-size: 15px; }
+.ad-pub code { font-size: 14px; font-weight: 600; }
+.ad-steps { margin: 4px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; color: var(--ink-2); line-height: 1.55; }
+.ad-steps li::marker { color: var(--accent); font-weight: 700; }
+.ad-steps b { color: var(--ink); }
+.ad-status-top { display: flex; align-items: flex-start; gap: 14px; }
+.ad-status-top .fav { width: 36px; height: 36px; border-radius: 9px; }
+.ad-status-name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 17px; }
+.ad-status-top p { margin: 4px 0 0; color: var(--muted); }
+.ad-check { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 8px 20px; }
+.ad-check li { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-radius: 10px; background: var(--surface-2); }
+.ad-check li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ad-check li b { font-weight: 600; }
+.ad-check li span { font-size: 12.5px; color: var(--muted); }
+.ad-check li .ic { width: 16px; height: 16px; flex: none; margin-top: 2px; stroke-width: 2.4; }
+.ad-check li.ok .ic { color: var(--up); }
+.ad-check li.bad .ic { color: var(--down); }
+.ad-check li.unk .ic { color: var(--muted); }
+.ad-check li.muted { background: none; }
+.ad-wait { display: flex; align-items: center; gap: 10px; padding: 24px 0; }
+
 /* ---------- dashboard overview ---------- */
 .dash-stats { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
 .stat-of { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
