@@ -2,17 +2,16 @@
  * Numbers come straight from the GA4 API (same data as analytics.google.com). */
 (() => {
   'use strict';
-  const { $, store, num, compact, pct, dur, durAxis, pctAxis, esc, div, iso, parseIso, addDays, rangeText, kpiChart, deltaHtml, table, barList, favicon, icon, pageHead, loading, paint, el, gAuth, oauthHelp } = CL;
+  const { $, store, num, compact, pct, dur, durAxis, pctAxis, esc, div, iso, parseIso, addDays, rangeText, kpiChart, deltaHtml, table, barList, favicon, icon, pageHead, loading, paint, el, gAuth, gGate, gReconnect, gSignIn } = CL;
   const CFG = window.ADMIN_CONFIG || {};
-  const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+  const SCOPE = CL.GA_SCOPE;
   const ADMIN_API = 'https://analyticsadmin.googleapis.com/v1beta';
   const DATA_API = 'https://analyticsdata.googleapis.com/v1beta';
   const app = $('#app');
   const EYEBROW = 'Google Analytics';
 
   // ---------- auth (token shared with Google Search, see CL.gAuth) ----------
-  const signIn = (prompt = '') => gAuth.request(SCOPE, prompt);
-  function signOut() { gAuth.signOut(); cache.clear(); props = null; }
+  function signOut() { gAuth.forget(); cache.clear(); props = null; }
 
   // ---------- API ----------
   const cache = new Map();
@@ -22,7 +21,8 @@
       headers: { Authorization: 'Bearer ' + gAuth.token(), 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (res.status === 401 && !retried) { await signIn(''); return api(url, body, true); }
+    // 401 = token died early: renew silently if this run started from a click, else the route shows Reconnect\r
+    if (res.status === 401 && !retried) { gAuth.expire(); await gAuth.renew(); return api(url, body, true); }
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
     return json;
@@ -293,20 +293,18 @@
   }
 
   function viewSignIn(msg) {
-    paint(`<section class="card signin"><span class="logo" aria-hidden="true"></span><div class="eyebrow">Google Analytics</div><h1>Connect Google Analytics</h1>
-      <p>Sign in with the Google account that owns the GA4 properties${CFG.ownerEmail ? ` (<b>${esc(CFG.ownerEmail)}</b>)` : ''}. Read-only access.</p>
-      ${msg ? `<div class="error">${icon('alert')}<div>${esc(msg)}</div></div>` : ''}
-      <button class="btn lg" id="gaSignin">${CL.G_LOGO || ''}Sign in with Google</button>
-      ${oauthHelp()}</section>`, false);
-    $('#gaSignin').onclick = async () => {
-      try { await signIn(gAuth.token() ? '' : 'select_account'); window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (e) { viewSignIn(e.message); }
-    };
+    const more = !!gAuth.token();
+    gSignIn({
+      id: 'gaSignin', need: SCOPE, msg, eyebrow: 'Google Analytics', title: 'Connect Google Analytics',
+      text: `Sign in with the Google account that owns the GA4 properties${CFG.ownerEmail ? ` (<b>${esc(CFG.ownerEmail)}</b>)` : ''}. Read-only access.`,
+      button: more ? 'Allow Google Analytics access' : 'Sign in with Google',
+    });
   }
 
   async function route({ R, alive, site, tab }) {
     clearTimeout(liveTimer);
     if (!CFG.clientId) { paint(`<div class="error">${icon('alert')}<div>Set <code>clientId</code> in config.js to use Google Analytics.</div></div>`, false); return; }
-    if (!gAuth.has(SCOPE)) return viewSignIn();
+    if (!(await gGate(SCOPE, viewSignIn, alive))) return;
     loading('Loading Google Analytics…');
     try {
       if (tab === 'pages') await viewPages(R, alive, site);
@@ -315,6 +313,8 @@
       else await viewOverview(R, alive);
     } catch (e) {
       if (!alive()) return;
+      if (e.reconnect) { gReconnect(); return; }
+      if (/insufficient authentication scopes/i.test(e.message)) { viewSignIn('Google did not give Analytics access to this sign-in. Press the button and allow it.'); return; }
       paint(`<div class="error">${icon('alert')}<div><b>Couldn't load Google Analytics.</b><br>${esc(e.message)}<div class="note">If the API is disabled, enable "Google Analytics Data API" and "Google Analytics Admin API" in Google Cloud. If permission is denied, sign in with the account that has access to the GA4 properties.</div></div></div><button class="btn" id="retry">Try again</button>`, false);
       $('#retry').onclick = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
     }

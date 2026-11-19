@@ -47,8 +47,14 @@
   CL.state = () => state;
 
   // ---------- sidebar ----------
+  // connection dot per data source: on = ready, warn = Google token expired (one click to reconnect), off = not connected
+  function srcState(src) {
+    if (src === 'own') return OWN.user() ? ['on', 'Signed in'] : ['off', 'Signed out'];
+    const sc = src === 'ga' ? CL.GA_SCOPE : CL.GSC_SCOPE;
+    return CL.gAuth.has(sc) ? ['on', 'Connected'] : CL.gAuth.known(sc) ? ['warn', 'Needs reconnect'] : ['off', 'Not connected'];
+  }
   function renderNav() {
-    $('#nav').innerHTML = NAV.map((g) => `<div class="nav-group"><div class="nav-label">${icon(g.ic)}${esc(g.title)}</div>${g.items.map(([tab, label, ic]) => {
+    $('#nav').innerHTML = NAV.map((g) => `<div class="nav-group"><div class="nav-label">${icon(g.ic)}<span>${esc(g.title)}</span><span class="nav-dot ${srcState(g.src)[0]}" title="${esc(srcState(g.src)[1])}"></span></div>${g.items.map(([tab, label, ic]) => {
       const on = state.src === g.src && state.tab === tab;
       return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
     }).join('')}</div>`).join('');
@@ -99,7 +105,7 @@
     });
   }));
 
-  // Site picker: a wide grid of tiles (5 columns on desktop) with search.
+  // Site picker: a grid of tiles (3 columns on desktop, fewer on small screens) with search; stays inside the viewport.
   const NAMES = CFG.siteNames || {};
   const siteName = (h) => NAMES[h] || h.split('.')[0];
   $('#siteBtn').addEventListener('click', () => popover($('#siteBtn'), (el, close) => {
@@ -145,26 +151,38 @@
   }
   function renderAccount() { $('#accountBtn').innerHTML = OWN.user() ? avatar(OWN.user()) : icon('monitor'); }
   $('#accountBtn').addEventListener('click', () => popover($('#accountBtn'), (el, close) => {
-    const u = OWN.user();
+    const u = OWN.user(), G = CL.gAuth;
+    const gKnown = G.known(CL.GA_SCOPE) || G.known(CL.GSC_SCOPE), gLive = !!G.token();
+    const row = (label, src, extra = '') => { const [k, t] = srcState(src); return `<div class="acct-row"><span>${label}</span><span class="status ${k}">${t}${extra}</span></div>`; };
     el.setAttribute('role', 'menu');
     el.innerHTML = `${u ? `<div class="acct"><span class="acct-av">${avatar(u)}</span><div style="min-width:0"><div class="acct-name">${esc(u.displayName || 'Signed in')}</div><div class="note">${esc(u.email || '')}</div></div></div>` : '<div class="pop-title">Not signed in</div>'}
+      <div class="pop-title">Data sources</div>
       <div class="acct-rows">
-        <div class="acct-row"><span>CodeLove Analytics</span><span class="status${u ? ' on' : ''}">${u ? 'Signed in' : 'Signed out'}</span></div>
-        <div class="acct-row"><span>Google Analytics</span><span class="status${GA.signedIn() ? ' on' : ''}">${GA.signedIn() ? 'Connected' : 'Not connected'}</span></div>
-        <div class="acct-row"><span>Google Search Console</span><span class="status${GSC.signedIn() ? ' on' : ''}">${GSC.signedIn() ? 'Connected' : 'Not connected'}</span></div>
+        ${row('CodeLove Analytics', 'own')}
+        ${row('Google Analytics', 'ga')}
+        ${row('Search Console', 'gsc')}
+        ${gKnown ? `<div class="acct-g note">${G.email() ? `Google: ${esc(G.email())}` : 'Google account connected'}${gLive ? ` · renews in ${G.minutesLeft()} min` : ''}</div>` : ''}
       </div>
+      ${gKnown ? `${gLive ? '' : `<button type="button" class="mi" id="gRecon" role="menuitem">${icon('refresh')}<span class="mi-label">Reconnect Google</span></button>`}
+        <button type="button" class="mi" id="gSwitchBtn" role="menuitem">${icon('globe')}<span class="mi-label">Switch Google account</span></button>
+        <button type="button" class="mi" id="gForget" role="menuitem">${icon('x')}<span class="mi-label">Disconnect Google</span></button>` : ''}
       <div class="pop-sep"></div>
       <div class="pop-title">Theme</div>
       <div class="theme-seg">${THEMES.map(([v, l, ic]) => `<button type="button" data-t="${v}" aria-pressed="${theme() === v}">${icon(ic)}${l}</button>`).join('')}</div>
-      ${u || CL.gAuth.token() ? `<div class="pop-sep"></div><button type="button" class="mi danger" id="signoutBtn" role="menuitem">${icon('logout')}<span class="mi-label">Sign out of everything</span></button>` : ''}`;
+      ${u || gKnown ? `<div class="pop-sep"></div><button type="button" class="mi danger" id="signoutBtn" role="menuitem">${icon('logout')}<span class="mi-label">Sign out of everything</span></button>` : ''}`;
     el.querySelectorAll('.theme-seg button').forEach((b) => b.addEventListener('click', () => {
       setTheme(b.dataset.t);
       el.querySelectorAll('.theme-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
       window.dispatchEvent(new Event('resize'));
     }));
-    const so = $('#signoutBtn', el);
-    if (so) so.addEventListener('click', () => { close(false); GA.signOut(); GSC.clear(); OWN.signOut(); route(); });
+    const on = (id, fn) => { const b = $('#' + id, el); if (b) b.addEventListener('click', fn); };
+    // these open Google's window, so they run straight from the click
+    on('gRecon', () => { close(false); G.renew(true).then(route, (e) => { if (e.code !== 'popup_closed') alert(e.message); }); });
+    on('gSwitchBtn', () => { close(false); G.switchAccount().then(() => { GA.clear(); GSC.clear(); route(); }, (e) => { if (e.code !== 'popup_closed') alert(e.message); }); });
+    on('gForget', () => { close(false); GA.signOut(); GSC.clear(); route(); });
+    on('signoutBtn', () => { close(false); GA.signOut(); GSC.clear(); OWN.signOut(); route(); });
   }, { align: 'end' }));
+  CL.gAuth.onChange(() => { renderNav(); renderAccount(); });
   // charts read CSS colours at draw time; redraw them when the OS theme flips
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (theme() === 'system') route(); });
 
@@ -187,6 +205,6 @@
   addEventListener('hashchange', route);
 
   OWN.init();
-  OWN.onAuth(() => { renderAccount(); OWN.updateBadge(); if (state.src === 'own') route(); });
+  OWN.onAuth(() => { renderAccount(); renderNav(); OWN.updateBadge(); if (state.src === 'own') route(); });
   route();
 })();

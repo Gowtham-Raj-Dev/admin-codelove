@@ -156,22 +156,31 @@
     trigger.classList.remove('open');
     if (focusBack && document.contains(trigger)) trigger.focus({ preventScroll: true });
   }
+  // Keep a popover fully inside the visible viewport (clientWidth excludes the scrollbar, innerWidth doesn't):
+  // 16px margin, start- or end-aligned with the trigger and shifted to fit, flipped above when there is more room there.
+  const EDGE = 16;
   function place(el, trigger, align) {
-    const r = trigger.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
-    el.style.minWidth = Math.max(r.width, 230) + 'px';
+    const r = trigger.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    if (el.classList.contains('pop-gridmenu')) el.style.width = Math.min(760, vw - EDGE * 2) + 'px';
+    el.style.minWidth = Math.min(Math.max(r.width, 240), vw - EDGE * 2) + 'px';
+    el.style.left = '0px'; el.style.top = '0px'; el.style.maxHeight = '';
     const w = el.offsetWidth;
     let left = align === 'end' ? r.right - w : r.left;
-    left = Math.max(8, Math.min(left, vw - w - 8));
-    const top = r.bottom + 6;
-    el.style.left = left + 'px';
-    el.style.top = top + 'px';
-    el.style.maxHeight = Math.max(220, vh - top - 12) + 'px';
+    left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
+    const below = vh - r.bottom - 8 - EDGE, above = r.top - 8 - EDGE, h = el.scrollHeight;
+    const up = h > below && above > below + 40;
+    const room = Math.max(200, up ? above : below);
+    el.style.maxHeight = room + 'px';
+    el.style.left = Math.round(left) + 'px';
+    el.style.top = Math.round(up ? r.top - 8 - Math.min(h, room) : r.bottom + 8) + 'px';
+    el.classList.toggle('up', up);
   }
   /** Opens a popover under `trigger`; build(el, close) fills it. Clicking the trigger again closes it. */
   function popover(trigger, build, opts = {}) {
     if (openPop && openPop.trigger === trigger) { closePop(); return null; }
     closePop(false);
-    const sheet = innerWidth < 560;
+    const sheet = document.documentElement.clientWidth < 560;
     const el = document.createElement('div');
     el.className = 'pop' + (sheet ? ' sheet' : '') + (opts.cls ? ' ' + opts.cls : '');
     let scrim = null;
@@ -403,7 +412,7 @@
         const tds = cols.map((c, ci) => {
           let v = c.html ? c.html(r) : esc(c.fmt ? c.fmt(r[c.key], r) : r[c.key]);
           if (X && ci === 0) v = `<span class="xcell"><button type="button" class="xbtn" aria-expanded="${on}" aria-label="${on ? 'Hide' : 'Show'} details">${icon('chev')}</button><span class="xbody">${v}</span></span>`;
-          if (c.bar) return `<td class="num"><span class="cellbar"><span>${v}</span><i style="width:${Math.round(((r[c.key] || 0) / maxes[c.key]) * 56)}px"></i></span></td>`;
+          if (c.bar) return `<td class="num"><span class="cellbar"><span>${v}</span><span class="cb-track" aria-hidden="true"><i style="width:${Math.max(3, Math.round(((r[c.key] || 0) / maxes[c.key]) * 100))}%"></i></span></span></td>`;
           return `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${v}</td>`;
         }).join('');
         return `<tr${X ? ` class="xrow${on ? ' open' : ''}" data-x="${esc(k)}"` : ''}>${tds}</tr>${on ? `<tr class="xsub"><td colspan="${cols.length}">${X(r)}</td></tr>` : ''}`;
@@ -463,67 +472,176 @@
   const el = (tag, cls, html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
 
   // ---------- Google sign-in: one OAuth token shared by Google Analytics and Google Search ----------
-  // Each section asks only for its own read-only scope when it is opened. Google adds it to what was
-  // granted before (include_granted_scopes), so once both are connected one token covers both.
+  // Browser-only token model (no client secret, so no refresh token): an access token lives ~1 hour.
+  //  * One consent asks for every read scope at once (GA + Search Console + email), so both sections connect together.
+  //  * The token, its expiry and the granted scopes are kept in localStorage and reused across reloads / new tabs
+  //    until 2 minutes before expiry: no popup at all while it is valid.
+  //  * After it expires it is renewed with prompt '' + login_hint (Google closes the window by itself, no consent
+  //    screen). Browsers only allow that window right after a click, so a renew runs only inside a user gesture
+  //    (a nav click or the "Reconnect Google" button); a page load with an expired token shows that button instead.
+  //  * prompt 'select_account' is used only by "Switch Google account". The write scope (sitemap Resubmit) is
+  //    asked only on that click.
   const GA_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+  const GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
+  const EMAIL_SCOPE = 'https://www.googleapis.com/auth/userinfo.email';
+  const READ_SCOPES = [GA_SCOPE, GSC_SCOPE, EMAIL_SCOPE];
+  const G_KEY = 'cl_google', EARLY = 120e3;
   const gAuth = (() => {
-    let tok = null, client = null, pending = null;
-    try {
-      const t = JSON.parse(store.get('cl_admin_token', sessionStorage) || 'null');
-      // tokens saved before Google Search existed carry no scope list; they only had the GA scope
-      if (t && t.exp > Date.now() + 60e3) tok = { access: t.access, exp: t.exp, scopes: t.scopes || [GA_SCOPE] };
+    const blank = () => ({ access: '', exp: 0, scopes: [], granted: [], email: '' });
+    let s = blank();
+    try { Object.assign(s, JSON.parse(store.get(G_KEY) || '{}')); } catch { /* ignore */ }
+    try { // one-time move of the old per-tab token (sessionStorage) into localStorage
+      const old = JSON.parse(sessionStorage.getItem('cl_admin_token') || 'null');
+      if (old && old.access && !s.access && old.exp > Date.now()) Object.assign(s, { access: old.access, exp: old.exp + 60e3, scopes: old.scopes || [GA_SCOPE] });
+      sessionStorage.removeItem('cl_admin_token');
     } catch { /* ignore */ }
-    function init() {
-      if (client) return true;
-      if (!window.google?.accounts?.oauth2) return false;
-      client = google.accounts.oauth2.initTokenClient({
-        client_id: CFG.clientId,
-        scope: GA_SCOPE,
-        include_granted_scopes: true,
-        login_hint: CFG.ownerEmail || undefined,
-        callback: (resp) => {
-          const p = pending; pending = null;
-          if (resp.error) { p?.reject(new Error(resp.error_description || resp.error)); return; }
-          const scopes = String(resp.scope || '').split(/\s+/).filter(Boolean);
-          tok = { access: resp.access_token, exp: Date.now() + (resp.expires_in - 60) * 1000, scopes };
-          store.set('cl_admin_token', JSON.stringify(tok), sessionStorage);
-          if (p && !scopes.includes(p.scope)) { p.reject(new Error('Google did not give the read-only permission this page needs. Press the button again and tick the permission checkbox on the Google screen.')); return; }
-          p?.resolve(tok.access);
-        },
-        error_callback: (err) => {
-          const p = pending; pending = null;
-          p?.reject(new Error(err.type === 'popup_closed' ? 'The Google window was closed before sign-in finished.' : err.type === 'popup_failed_to_open' ? 'The browser blocked the Google popup. Allow popups for this site.' : err.message || err.type || 'Sign-in closed'));
-        },
-      });
-      return true;
+    if (!Array.isArray(s.scopes)) s.scopes = [];
+    if (!Array.isArray(s.granted)) s.granted = [];
+    s.granted = [...new Set([...s.granted, ...s.scopes])];
+    const listeners = new Set();
+    // another tab signed in / renewed / signed out: use its token here too
+    addEventListener('storage', (e) => {
+      if (e.key !== G_KEY) return;
+      try { s = Object.assign(blank(), JSON.parse(e.newValue || '{}')); } catch { s = blank(); }
+      listeners.forEach((f) => { try { f(); } catch { /* ignore */ } });
+    });
+    const changed = () => { store.set(G_KEY, s.access || s.granted.length ? JSON.stringify(s) : null); listeners.forEach((f) => { try { f(); } catch { /* ignore */ } }); };
+    const valid = () => !!s.access && s.exp - EARLY > Date.now();
+    const canPopup = () => !!(navigator.userActivation && navigator.userActivation.isActive);
+    let client = null, waiter = null, inflight = null, timer = 0;
+
+    function gErr(err, resp) {
+      const t = (err && err.type) || (resp && resp.error) || '';
+      const e = new Error(t === 'popup_closed' ? 'The Google window was closed before it finished.'
+        : t === 'popup_failed_to_open' ? 'The browser blocked the Google window. Press the button again, or allow pop-ups for this site.'
+          : t === 'access_denied' ? 'Google access was not allowed.'
+            : (resp && (resp.error_description || resp.error)) || (err && err.message) || t || 'Google sign-in failed.');
+      e.code = t;
+      if (t === 'popup_failed_to_open') e.reconnect = true;
+      return e;
     }
+    function settle(resp, err) {
+      const w = waiter; waiter = null; inflight = null; clearTimeout(timer);
+      if (!w) return;
+      if (err || !resp || resp.error || !resp.access_token) { w.reject(gErr(err, resp)); return; }
+      const scopes = String(resp.scope || '').split(/\s+/).filter(Boolean);
+      if (w.switching) s = blank();
+      // include_granted_scopes: the reply lists everything this Google account has granted the app
+      Object.assign(s, { access: resp.access_token, exp: Date.now() + (Number(resp.expires_in) || 3599) * 1000, scopes, granted: scopes.slice() });
+      changed();
+      if (scopes.includes(EMAIL_SCOPE) && !s.email) fetchEmail();
+      w.resolve(s.access);
+    }
+    function fetchEmail() {
+      fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + s.access } })
+        .then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && j.email) { s.email = j.email; changed(); } }).catch(() => {});
+    }
+    function getClient() {
+      if (client) return client;
+      if (!window.google?.accounts?.oauth2) return null;
+      client = google.accounts.oauth2.initTokenClient({
+        client_id: CFG.clientId, scope: READ_SCOPES.join(' '), include_granted_scopes: true,
+        callback: (resp) => settle(resp), error_callback: (err) => settle(null, err),
+      });
+      return client;
+    }
+    /** Opens Google's window. Only call from a click (or right after one). */
+    function request(scopes, { prompt = '', hint = s.email || CFG.ownerEmail || '', switching = false } = {}) {
+      if (inflight) return inflight;
+      const c = getClient();
+      if (!c) return Promise.reject(new Error('Google sign-in is still loading. Try again in a second.'));
+      inflight = new Promise((resolve, reject) => { waiter = { resolve, reject, switching }; });
+      // safety net: if Google never answers (window closed in an odd way), let the next click try again
+      timer = setTimeout(() => settle(null, { type: 'popup_closed' }), 180e3);
+      const o = { scope: [...new Set(scopes)].join(' '), prompt, include_granted_scopes: true };
+      if (hint) o.login_hint = hint;
+      c.requestAccessToken(o);
+      return inflight;
+    }
+    const reconnectErr = () => Object.assign(new Error('Google access expired. Press "Reconnect Google".'), { reconnect: true, code: 'reconnect' });
     return {
-      token: () => (tok ? tok.access : null),
-      has: (scope) => !!tok && tok.scopes.includes(scope),
-      /** Popup asking for `scope` on top of what's already granted. Call from a click (browsers block other popups). */
-      request(scope, prompt = '') {
-        return new Promise((resolve, reject) => {
-          if (!init()) { reject(new Error('Google sign-in script not loaded yet. Try again in a second.')); return; }
-          pending = { resolve, reject, scope };
-          client.requestAccessToken({ scope, prompt, include_granted_scopes: true });
-        });
+      READ_SCOPES,
+      token: () => (valid() ? s.access : null),
+      /** Usable right now for this scope. */
+      has: (scope) => valid() && s.scopes.includes(scope),
+      /** Granted before (token may have expired): a renew needs no consent screen. */
+      known: (scope) => s.granted.includes(scope),
+      email: () => s.email,
+      minutesLeft: () => (valid() ? Math.max(1, Math.round((s.exp - EARLY - Date.now()) / 60e3)) : 0),
+      canPopup,
+      /** First sign-in: every read scope in one consent (+ `extra`, e.g. the write scope). */
+      connect: (extra = []) => request([...READ_SCOPES, ...s.granted, ...extra]),
+      /** Silent renew of what was granted before. Without a user gesture it rejects with e.reconnect (caller shows the button). */
+      renew(force = false) {
+        if (!force && !canPopup()) return Promise.reject(reconnectErr());
+        return request(s.granted.length ? s.granted : READ_SCOPES);
       },
-      signOut() {
-        if (tok && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(tok.access, () => {});
-        tok = null;
-        store.set('cl_admin_token', null, sessionStorage);
-      },
+      switchAccount: () => request(READ_SCOPES, { prompt: 'select_account', hint: '', switching: true }),
+      /** The API said 401: the token is dead even if the clock says otherwise. */
+      expire() { s.exp = 0; changed(); },
+      /** Forget the token here (no revoke, so signing in again needs no new consent screen). */
+      forget() { s = blank(); changed(); },
+      onChange: (f) => listeners.add(f),
     };
   })();
-  /** Fixes for the usual Google sign-in errors, shown under a "Sign in with Google" button. */
+  const G_LOGO = '<svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+  const rerender = () => window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+  /** Expired Google token on a page load (no click to open Google's window from): one small button. */
+  function gReconnect(msg = '') {
+    const email = gAuth.email() || CFG.ownerEmail || '';
+    paint(`<section class="card state-card"><span class="state-ic">${icon('key')}</span>
+      <h2>Reconnect Google</h2>
+      <p>Google access tokens last one hour. One click renews it; you won't see the permission screen again.${email ? `<br><span class="muted">${esc(email)}</span>` : ''}</p>
+      ${msg ? `<div class="error">${icon('alert')}<div>${esc(msg)}</div></div>` : ''}
+      <div class="state-actions"><button type="button" class="btn primary" id="gReconnect">${G_LOGO}Reconnect Google</button>
+      <button type="button" class="link-btn" id="gSwitch">Use another account</button></div></section>`, false);
+    const go = (fn) => async (e) => {
+      e.currentTarget.disabled = true;
+      try { await fn(); rerender(); } catch (err) { gReconnect(err.code === 'popup_closed' ? '' : err.message); }
+    };
+    $('#gReconnect').onclick = go(() => gAuth.renew(true));
+    $('#gSwitch').onclick = go(() => gAuth.switchAccount());
+  }
+  /** Gate for a Google section. true = token ready; otherwise the sign-in or reconnect view is painted. */
+  async function gGate(scope, signInView, alive) {
+    if (gAuth.has(scope)) return true;
+    if (!gAuth.known(scope)) { signInView(); return false; }
+    if (!gAuth.canPopup()) { gReconnect(); return false; } // page load / timer: never open Google's window by itself
+    loading('Reconnecting Google…');
+    try { await gAuth.renew(); } catch (e) { if (alive()) gReconnect(e.reconnect || e.code === 'popup_closed' ? '' : e.message); return false; }
+    if (!alive()) return false;
+    if (gAuth.has(scope)) return true;
+    signInView(); return false;
+  }
+
+  /** Fixes for the usual Google sign-in errors, folded under the sign-in button. */
   function oauthHelp(extra = '') {
     const id = CFG.clientId || '', project = id.split('-')[0];
-    return `<div class="help"><b>Google shows "Error 400: origin_mismatch"?</b> The OAuth client doesn't allow this address yet. One-time fix:
+    return `<details class="help"><summary>Trouble signing in?</summary><div class="help-body"><b>Google shows "Error 400: origin_mismatch"?</b> The OAuth client doesn't allow this address yet. One-time fix:
         <ol><li>Open <a href="https://console.cloud.google.com/apis/credentials/oauthclient/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}" target="_blank" rel="noopener">this OAuth client in Google Cloud</a> (signed in as the owner Gmail).</li>
         <li>Under <i>Authorized JavaScript origins</i> click <b>Add URI</b> and enter <code>${esc(location.origin)}</code> (no slash at the end).</li>
         <li>Click <b>Save</b>.</li>
         <li>Wait 5 minutes, then sign in again.</li></ol>
-        <div style="margin-top:8px"><b>"Access blocked … not completed the Google verification process"?</b> Google Auth Platform → Audience → add this Gmail under <b>Test users</b>.</div>${extra}</div>`;
+        <div class="help-p"><b>"Access blocked … not completed the Google verification process"?</b> Google Auth Platform → Audience → add this Gmail under <b>Test users</b>.</div>
+        <div class="help-p"><b>"Google hasn't verified this app"?</b> Normal for a personal app: click <b>Continue</b>. It shows only on the permission screen, which this dashboard asks for once (not on every visit).</div>${extra}</div></details>`;
+  }
+  /** Sign-in card for a Google section. */
+  function gSignIn({ eyebrow, title, text, msg, button = 'Sign in with Google', help = '', id, need }) {
+    paint(`<section class="card signin"><span class="logo" aria-hidden="true"></span><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1>
+      <p>${text}</p>
+      ${msg ? `<div class="error">${icon('alert')}<div>${esc(msg)}</div></div>` : ''}
+      <button class="btn lg primary-g" id="${id}">${G_LOGO}${esc(button)}</button>
+      <p class="signin-note">One Google sign-in connects Google Analytics and Search Console together (read-only). It stays connected on this browser.</p>
+      ${oauthHelp(help)}</section>`, false);
+    $('#' + id).onclick = async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        await gAuth.connect();
+        if (!gAuth.has(need)) throw new Error('Google did not give the read-only permission this page needs. Press the button again and tick every checkbox on the Google screen.');
+        rerender();
+      } catch (err) { gSignIn({ eyebrow, title, text, msg: err.code === 'popup_closed' ? '' : err.message, button, help, id, need }); }
+    };
   }
 
   window.CL = {
@@ -531,6 +649,6 @@
     PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, axisMax,
     icon, favicon, favOk, favErr, popover, closePop, selectMenu,
     showTip, hideTip, lineChart, kpiChart, columns, sparkline, deltaHtml, table, barList,
-    pageHead, loading, paint, el, gAuth, oauthHelp,
+    pageHead, loading, paint, el, gAuth, gGate, gReconnect, gSignIn, oauthHelp, G_LOGO, GA_SCOPE, GSC_SCOPE, rerender,
   };
 })();

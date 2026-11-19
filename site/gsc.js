@@ -5,9 +5,9 @@
  * Numbers come straight from the Search Console API (same data as search.google.com/search-console). */
 (() => {
   'use strict';
-  const { $, store, num, compact, pct, pctAxis, esc, div, iso, istToday, rangeText, eachDay, kpiChart, deltaHtml, table, favicon, icon, pageHead, loading, paint, el, gAuth, oauthHelp, selectMenu } = CL;
+  const { $, store, num, compact, pct, pctAxis, esc, div, iso, istToday, rangeText, eachDay, kpiChart, deltaHtml, table, favicon, icon, pageHead, loading, paint, el, gAuth, gGate, gReconnect, gSignIn, selectMenu } = CL;
   const CFG = window.ADMIN_CONFIG || {};
-  const SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
+  const SCOPE = CL.GSC_SCOPE;
   const SCOPE_W = 'https://www.googleapis.com/auth/webmasters'; // only for "Resubmit sitemap", asked on that click
   const API = 'https://www.googleapis.com/webmasters/v3';
   const INSPECT_API = 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect';
@@ -27,7 +27,8 @@
       headers: { Authorization: 'Bearer ' + gAuth.token(), 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (res.status === 401 && !retried) { await gAuth.request(SCOPE, ''); return api(url, body, true, method); }
+    // 401 = token died early: renew silently if this run started from a click, else the route shows Reconnect
+    if (res.status === 401 && !retried) { gAuth.expire(); await gAuth.renew(); return api(url, body, true, method); }
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
     return json;
@@ -378,7 +379,7 @@
     });
   }
   const resubmitSitemap = async (s, path) => {
-    if (!gAuth.has(SCOPE_W)) await gAuth.request(SCOPE_W, '');
+    if (!gAuth.has(SCOPE_W)) await gAuth.connect([SCOPE_W]); // runs inside the Resubmit click
     await api(`${API}/sites/${encodeURIComponent(s.prop.url)}/sitemaps/${encodeURIComponent(path)}`, null, false, 'PUT');
   };
   const inspectLink = (prop, url) => `${GSC_URL}/inspect?resource_id=${encodeURIComponent(prop.url)}&id=${encodeURIComponent(url)}`;
@@ -639,20 +640,18 @@
 
   function viewSignIn(msg) {
     const more = !!gAuth.token();
-    paint(`<section class="card signin"><span class="logo" aria-hidden="true"></span><div class="eyebrow">Google Search</div><h1>Connect Search Console</h1>
-      <p>See which Google searches your sites show up for, and on which results page. Sign in with the Google account that has the Search Console properties${CFG.ownerEmail ? ` (<b>${esc(CFG.ownerEmail)}</b>)` : ''}. Read-only access.</p>
-      ${msg ? `<div class="error">${icon('alert')}<div>${esc(msg)}</div></div>` : ''}
-      <button class="btn lg" id="gscSignin">${CL.G_LOGO || ''}${more ? 'Allow Search Console access' : 'Sign in with Google'}</button>
-      ${oauthHelp(`<div style="margin-top:8px"><b>"Google Search Console API has not been used … or it is disabled"?</b> <a href="${ENABLE_URL}" target="_blank" rel="noopener">Enable Google Search Console API</a> in the same Google Cloud project.</div>
-        <div style="margin-top:8px"><b>Google warns about the <code>webmasters.readonly</code> permission?</b> Google Auth Platform → Data access → <b>Add or remove scopes</b> → tick <code>…/auth/webmasters.readonly</code> → Save.</div>`)}</section>`, false);
-    $('#gscSignin').onclick = async () => {
-      try { await gAuth.request(SCOPE, more ? '' : 'select_account'); window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (e) { viewSignIn(e.message); }
-    };
+    gSignIn({
+      id: 'gscSignin', need: SCOPE, msg, eyebrow: 'Google Search', title: 'Connect Search Console',
+      text: `See which Google searches your sites show up for, and on which results page. Sign in with the Google account that has the Search Console properties${CFG.ownerEmail ? ` (<b>${esc(CFG.ownerEmail)}</b>)` : ''}. Read-only access.`,
+      button: more ? 'Allow Search Console access' : 'Sign in with Google',
+      help: `<div class="help-p"><b>"Google Search Console API has not been used … or it is disabled"?</b> <a href="${ENABLE_URL}" target="_blank" rel="noopener">Enable Google Search Console API</a> in the same Google Cloud project.</div>
+        <div class="help-p"><b>Google warns about the <code>webmasters.readonly</code> permission?</b> Google Auth Platform → Data access → <b>Add or remove scopes</b> → tick <code>…/auth/webmasters.readonly</code> → Save.</div>`,
+    });
   }
 
   async function route({ R, alive, site, tab }) {
     if (!CFG.clientId) { paint(`<div class="error">${icon('alert')}<div>Set <code>clientId</code> in config.js to use Google Search.</div></div>`, false); return; }
-    if (!gAuth.has(SCOPE)) return viewSignIn();
+    if (!(await gGate(SCOPE, viewSignIn, alive))) return;
     loading('Loading Search Console…');
     try {
       if (tab === 'pages') await viewPages(R, alive, site);
@@ -661,6 +660,7 @@
       else await viewKeywords(R, alive, site);
     } catch (e) {
       if (!alive()) return;
+      if (e.reconnect) { gReconnect(); return; }
       if (/insufficient authentication scopes/i.test(e.message)) { viewSignIn('Google did not give Search Console access to this sign-in. Press the button and allow it.'); return; }
       const disabled = /has not been used|is disabled|SERVICE_DISABLED|accessNotConfigured/i.test(e.message);
       const denied = /permission|forbidden|not.*access/i.test(e.message);
