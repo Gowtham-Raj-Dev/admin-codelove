@@ -684,6 +684,8 @@
   const lib = {
     SCOPE, DAY_QUOTA, resolve, daily, series, keywords, targetRows, indexData, inspect, idx, rankOf, quotaUsed, normUrl,
     keywordsPrev: (s, R) => keywords(s, { ...R, start: R.prevStart, end: R.prevEnd }),
+    // raw Search Analytics rows for any dimensions (Tools → Rank tracker uses ['date', 'query'])
+    rows: (s, start, end, dims) => query(s.prop, start, end, dims),
   };
   window.GSC = { route, lib, clear: () => cache.clear(), stop: () => {}, signedIn: () => gAuth.has(SCOPE) };
 })();

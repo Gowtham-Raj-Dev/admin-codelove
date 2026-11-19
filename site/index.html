@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=20261120b">
+  <link rel="stylesheet" href="style.css?v=20261120h">
 </head>
 <body>
   <div class="shell">
@@ -19,47 +19,49 @@
         <a class="brand" href="#/reports"><span class="logo" aria-hidden="true"></span><span>CodeLove <b>Admin</b></span></a>
         <button class="icon-btn side-close" id="sideClose" aria-label="Close menu"></button>
       </div>
+      <div class="side-filters" role="group" aria-label="Filters">
+        <button type="button" class="dd" id="rangeBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Date range"></button>
+        <div class="sf-row">
+          <button type="button" class="dd" id="siteBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Site"></button>
+          <button type="button" class="icon-btn" id="refresh" title="Reload data" aria-label="Reload data"></button>
+        </div>
+      </div>
       <nav class="nav" id="nav"></nav>
-      <div class="side-foot note">Private dashboard · not indexed</div>
+      <div class="side-foot">
+        <a href="#/live" class="live-pill" id="liveBadge" hidden></a>
+        <button type="button" class="acct-btn" id="accountBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account and settings"></button>
+      </div>
     </aside>
     <div class="scrim" id="scrim"></div>
 
     <div class="main">
-      <header class="top">
-        <div class="top-inner">
-          <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu"></button>
-          <a class="top-brand" href="#/reports"aria-label="CodeLove Admin home"><span class="logo" aria-hidden="true"></span></a>
-          <div class="filters" role="group" aria-label="Filters">
-            <button type="button" class="dd" id="rangeBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Date range"></button>
-            <button type="button" class="dd" id="siteBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Site"></button>
-            <button type="button" class="icon-btn" id="refresh" title="Reload data" aria-label="Reload data"></button>
-          </div>
-          <nav class="sections" id="sections" aria-label="Sections"></nav>
-          <div class="top-right">
-            <a href="#/live" class="live-pill" id="liveBadge" hidden></a>
-            <button type="button" class="avatar-btn" id="accountBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account and settings"></button>
-          </div>
-        </div>
+      <!-- phones only: the sidebar is a drawer, this bar opens it -->
+      <header class="mtop">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu"></button>
+        <a class="top-brand" href="#/reports" aria-label="CodeLove Admin home"><span class="logo" aria-hidden="true"></span><span>CodeLove <b>Admin</b></span></a>
       </header>
 
+      <div id="downAlert" hidden></div>
       <main id="app"><div class="loading"><span class="spinner"></span>Loading…</div></main>
     </div>
   </div>
 
   <div id="tooltip" class="tooltip" role="status" hidden></div>
 
-  <script src="config.js?v=20261120b"></script>
+  <script src="config.js?v=20261120h"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="common.js?v=20261120b"></script>
-  <script src="ga.js?v=20261120b"></script>
-  <script src="gsc.js?v=20261120b"></script>
-  <script src="own.js?v=20261120b"></script>
-  <script src="report.js?v=20261120b"></script>
-  <script src="dash.js?v=20261120b"></script>
-  <script src="ads.js?v=20261120b"></script>
-  <script src="app.js?v=20261120b"></script>
+  <script src="common.js?v=20261120h"></script>
+  <script src="ga.js?v=20261120h"></script>
+  <script src="gsc.js?v=20261120h"></script>
+  <script src="own.js?v=20261120h"></script>
+  <script src="report.js?v=20261120h"></script>
+  <script src="dash.js?v=20261120h"></script>
+  <script src="ads.js?v=20261120h"></script>
+  <script src="tools.js?v=20261120h"></script>
+  <script src="tools2.js?v=20261120h"></script>
+  <script src="app.js?v=20261120h"></script>
 </body>
 </html>

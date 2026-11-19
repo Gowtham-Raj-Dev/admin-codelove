@@ -21,11 +21,12 @@
     { src: 'ga', tabLabel: 'Google Analytics', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live']] },
     { src: 'gsc', tabLabel: 'Google Search', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'file'], ['index', 'Index status', 'check'], ['missing', 'Not showing', 'eyeoff']] },
     { src: 'ads', tabLabel: 'AdSense', title: 'AdSense', ic: 'coin', items: [['overview', 'Overview', 'grid'], ['sites', 'Sites & approval', 'check'], ['setup', 'Setup', 'code']] },
+    { src: 'tools', tabLabel: 'Tools', title: 'Tools', ic: 'tool', items: [['overview', 'Site health', 'live'], ['uptime', 'Uptime', 'alert'], ['checker', 'Page checker', 'search'], ['broken', 'Broken links', 'x'], ['ranks', 'Rank tracker', 'bars'], ['speed', 'PageSpeed', 'gauge'], ['utm', 'UTM link builder', 'link'], ['links', 'Quick links', 'ext']] },
   ];
   // Last sub-page opened in each section, so going back to a tab returns to where you were.
   const lastTab = {};
-  const BASE = { own: '#', ga: '#/ga', gsc: '#/search', rep: '#/reports', ads: '#/adsense' };
-  const SECTION = { own: () => OWN, ga: () => GA, gsc: () => GSC, rep: () => REP, ads: () => ADS };
+  const BASE = { own: '#', ga: '#/ga', gsc: '#/search', rep: '#/reports', ads: '#/adsense', tools: '#/tools' };
+  const SECTION = { own: () => OWN, ga: () => GA, gsc: () => GSC, rep: () => REP, ads: () => ADS, tools: () => TOOLS };
 
   function parse() {
     const raw = (location.hash || '#/').slice(1) || '/';
@@ -33,7 +34,7 @@
     let path = qi >= 0 ? raw.slice(0, qi) : raw;
     const params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : '');
     let src = 'own';
-    for (const [s, pre] of [['ga', '/ga'], ['gsc', '/search'], ['rep', '/reports'], ['ads', '/adsense']]) if (path === pre || path.startsWith(pre + '/')) { src = s; path = path.slice(pre.length) || '/'; }
+    for (const [s, pre] of [['ga', '/ga'], ['gsc', '/search'], ['rep', '/reports'], ['ads', '/adsense'], ['tools', '/tools']]) if (path === pre || path.startsWith(pre + '/')) { src = s; path = path.slice(pre.length) || '/'; }
     let site = params.get('site') || null, tab = 'overview';
     if (path.startsWith('/site/')) site = decodeURIComponent(path.slice(6));
     else if (path.startsWith('/pages')) tab = 'pages';
@@ -43,6 +44,7 @@
     else if (path.startsWith('/index') && src === 'gsc') tab = 'index';
     else if (src === 'ads' && path.startsWith('/sites')) tab = 'sites';
     else if (src === 'ads' && path.startsWith('/setup')) tab = 'setup';
+    else if (src === 'tools') for (const t of ['checker', 'speed', 'utm', 'links', 'broken', 'uptime', 'ranks']) if (path.startsWith('/' + t)) tab = t;
     else if (src === 'rep') for (const t of ['daily', 'history', 'view', 'compare']) if (path.startsWith('/' + t)) tab = t;
     if (site) site = site.toLowerCase().replace(/[^a-z0-9.-]/g, '') || null;
     return { src, tab, site, params };
@@ -59,29 +61,21 @@
   // ---------- sidebar ----------
   // connection dot per data source: on = ready, warn = Google token expired (one click to reconnect), off = not connected
   function srcState(src) {
-    if (src === 'rep') return null;
+    if (src === 'rep' || src === 'tools') return null;
     if (src === 'own') return OWN.user() ? ['on', 'Signed in'] : ['off', 'Signed out'];
     const sc = src === 'ga' ? CL.GA_SCOPE : src === 'ads' ? CL.ADS_SCOPE : CL.GSC_SCOPE;
     return CL.gAuth.has(sc) ? ['on', 'Connected'] : CL.gAuth.known(sc) ? ['warn', 'Needs reconnect'] : ['off', 'Not connected'];
   }
   const dot = (src) => { const s = srcState(src); return s ? `<span class="nav-dot ${s[0]}" title="${esc(s[1])}"></span>` : ''; };
-  // Top tabs pick the section; the sidebar lists only that section's pages.
-  function renderTabs() {
-    $('#sections').innerHTML = NAV.map((g) => {
-      const on = state.src === g.src;
-      const tab = lastTab[g.src] && lastTab[g.src] !== 'view' && lastTab[g.src] !== 'compare' ? lastTab[g.src] : 'overview';
-      return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="sec-tab${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}>${icon(g.ic)}<span>${esc(g.tabLabel)}</span>${dot(g.src)}</a>`;
-    }).join('');
-  }
   // Sidebar: every section as an accordion group, only one open at a time (the current section opens by itself).
   let openSrc = null;
-  const ACC_COLOR = { rep: '#7c7cf5', own: '#ec5f9e', ga: '#f2a33a', gsc: '#2fbf71', ads: '#3d8bfd' };
+  const ACC_COLOR = { rep: '#7c7cf5', own: '#ec5f9e', ga: '#f2a33a', gsc: '#2fbf71', ads: '#3d8bfd', tools: '#14b8a6' };
   function renderNav() {
     if (openSrc === null) openSrc = state.src;
     $('#nav').innerHTML = NAV.map((g) => {
       const open = openSrc === g.src, cur = state.src === g.src;
       const st = srcState(g.src);
-      const sub = st ? `<span class="acc-sub"><span class="nav-dot ${st[0]}"></span>${esc(st[1])}</span>` : `<span class="acc-sub">${g.items.length} pages</span>`;
+      const sub = st ? `<span class="acc-sub"><span class="nav-dot ${st[0]}"></span>${esc(st[1])}</span>` : `<span class="acc-sub">${g.items.length} ${g.src === 'tools' ? 'tools' : 'pages'}</span>`;
       return `<div class="nav-group acc${open ? ' open' : ''}${cur ? ' cur' : ''}" data-src="${g.src}" style="--c:${ACC_COLOR[g.src]}">
         <button type="button" class="acc-head" aria-expanded="${open}" aria-controls="acc-${g.src}"><span class="acc-ic">${icon(g.ic)}</span><span class="acc-title"><span class="acc-name">${esc(g.title)}</span>${sub}</span>${icon('chev', 'acc-chev')}</button>
         <div class="acc-body" id="acc-${g.src}"><div class="acc-inner">${g.items.map(([tab, label, ic]) => {
@@ -89,7 +83,6 @@
           return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}${open ? '' : ' tabindex="-1"'}>${icon(ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
         }).join('')}</div></div></div>`;
     }).join('');
-    renderTabs();
   }
   $('#nav').addEventListener('click', (e) => {
     const h = e.target.closest('.acc-head');
@@ -119,10 +112,11 @@
     rb.innerHTML = `${icon('calendar')}<span class="dd-text"><b>${esc(rangeLabel())}</b><span class="dd-sub">${esc(shortRange(R.start, R.end))}</span></span>${icon('chev')}`;
     const repOther = state.src === 'rep' && ['history', 'view', 'compare'].includes(state.tab);
     const adsOther = state.src === 'ads' && state.tab !== 'overview';
-    rb.disabled = state.tab === 'live' || state.tab === 'tracker' || repOther || adsOther;
+    const tools = state.src === 'tools', toolsNoSite = tools && !['overview', 'speed', 'checker', 'broken', 'ranks'].includes(state.tab);
+    rb.disabled = state.tab === 'live' || state.tab === 'tracker' || repOther || adsOther || (tools && state.tab !== 'ranks');
     rb.title = rb.disabled ? (repOther ? 'Saved reports keep the range they were made with' : 'Live and Tracker are not date based') : '';
     sb.innerHTML = `${state.site ? favicon(state.site) : icon('globe')}<span class="dd-text"><b>${esc(state.site || 'All sites')}</b></span>${icon('chev')}`;
-    sb.disabled = state.tab === 'tracker' || repOther || adsOther;
+    sb.disabled = state.tab === 'tracker' || repOther || adsOther || toolsNoSite;
     $('#refresh').innerHTML = icon('refresh');
   }
 
@@ -181,7 +175,7 @@
   $('#refresh').addEventListener('click', () => {
     const b = $('#refresh');
     b.classList.add('spin'); setTimeout(() => b.classList.remove('spin'), 700);
-    OWN.clear(); GA.clear(); GSC.clear(); REP.clear(); ADS.clear(); route();
+    OWN.clear(); GA.clear(); GSC.clear(); REP.clear(); ADS.clear(); TOOLS.clear(); route();
   });
 
   // ---------- account + theme ----------
@@ -195,7 +189,11 @@
     if (u && u.photoURL) return `<img src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`;
     return esc(((u && (u.displayName || u.email)) || '?').trim().charAt(0).toUpperCase());
   }
-  function renderAccount() { $('#accountBtn').innerHTML = OWN.user() ? avatar(OWN.user()) : icon('monitor'); }
+  // Sidebar footer: avatar + name + email; opens the account / theme menu.
+  function renderAccount() {
+    const u = OWN.user();
+    $('#accountBtn').innerHTML = `<span class="acct-av-sm">${u ? avatar(u) : icon('monitor')}</span><span class="acct-txt"><b>${esc(u ? u.displayName || 'Signed in' : 'Not signed in')}</b><span>${esc(u ? u.email || '' : 'Account & theme')}</span></span>${icon('chev', 'acct-chev')}`;
+  }
   $('#accountBtn').addEventListener('click', () => popover($('#accountBtn'), (el, close) => {
     const u = OWN.user(), G = CL.gAuth;
     const gKnown = G.known(CL.GA_SCOPE) || G.known(CL.GSC_SCOPE), gLive = !!G.token();
@@ -228,7 +226,7 @@
     on('gSwitchBtn', () => { close(false); G.switchAccount().then(() => { GA.clear(); GSC.clear(); route(); }, (e) => { if (e.code !== 'popup_closed') alert(e.message); }); });
     on('gForget', () => { close(false); GA.signOut(); GSC.clear(); route(); });
     on('signoutBtn', () => { close(false); GA.signOut(); GSC.clear(); OWN.signOut(); route(); });
-  }, { align: 'end' }));
+  }));
   CL.gAuth.onChange(() => { renderNav(); renderAccount(); });
 
   // Keep Google connected without asking: Google tokens last 1 hour and the browser only lets the (self-closing,
@@ -265,6 +263,7 @@
   addEventListener('hashchange', route);
 
   OWN.init();
+  TOOLS2.startUptime(); // background uptime checks + red alert on every page when a site is down
   OWN.onAuth(() => { renderAccount(); renderNav(); OWN.updateBadge(); if (state.src === 'own') route(); });
   route();
 })();
