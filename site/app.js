@@ -2,7 +2,9 @@
  *   #/...        CodeLove Analytics (our own tracker, Firestore)  -> own.js
  *   #/ga/...     Google Analytics 4                               -> ga.js
  *   #/search/... Google Search (Search Console keywords)          -> gsc.js
+ *   #/reports... Daily SEO/indexing/traffic report + History        -> report.js
  * Routes: #/  #/pages  #/live  #/tracker  #/ga  #/ga/pages  #/ga/live  #/search  #/search/pages  #/search/index  #/search/missing
+ *         #/reports  #/reports/history  #/reports/view?id=…  #/reports/compare?a=…&b=…
  * Site filter: #/site/<host> (overview of one site) or ?site=<host> on the other tabs. */
 (() => {
   'use strict';
@@ -13,12 +15,13 @@
   let state = { src: 'own', tab: 'overview', site: null };
 
   const NAV = [
+    { src: 'rep', title: 'Reports', ic: 'calendar', items: [['overview', 'Daily report', 'file'], ['history', 'History', 'calendar']] },
     { src: 'own', title: 'CodeLove Analytics', ic: 'heart', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live'], ['tracker', 'Tracker', 'code']] },
     { src: 'ga', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live']] },
     { src: 'gsc', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'file'], ['index', 'Index status', 'check'], ['missing', 'Not showing', 'eyeoff']] },
   ];
-  const BASE = { own: '#', ga: '#/ga', gsc: '#/search' };
-  const SECTION = { own: () => OWN, ga: () => GA, gsc: () => GSC };
+  const BASE = { own: '#', ga: '#/ga', gsc: '#/search', rep: '#/reports' };
+  const SECTION = { own: () => OWN, ga: () => GA, gsc: () => GSC, rep: () => REP };
 
   function parse() {
     const raw = (location.hash || '#/').slice(1) || '/';
@@ -26,7 +29,7 @@
     let path = qi >= 0 ? raw.slice(0, qi) : raw;
     const params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : '');
     let src = 'own';
-    for (const [s, pre] of [['ga', '/ga'], ['gsc', '/search']]) if (path === pre || path.startsWith(pre + '/')) { src = s; path = path.slice(pre.length) || '/'; }
+    for (const [s, pre] of [['ga', '/ga'], ['gsc', '/search'], ['rep', '/reports']]) if (path === pre || path.startsWith(pre + '/')) { src = s; path = path.slice(pre.length) || '/'; }
     let site = params.get('site') || null, tab = 'overview';
     if (path.startsWith('/site/')) site = decodeURIComponent(path.slice(6));
     else if (path.startsWith('/pages')) tab = 'pages';
@@ -34,8 +37,9 @@
     else if (path.startsWith('/tracker') && src === 'own') tab = 'tracker';
     else if (path.startsWith('/missing') && src === 'gsc') tab = 'missing';
     else if (path.startsWith('/index') && src === 'gsc') tab = 'index';
+    else if (src === 'rep') for (const t of ['history', 'view', 'compare']) if (path.startsWith('/' + t)) tab = t;
     if (site) site = site.toLowerCase().replace(/[^a-z0-9.-]/g, '') || null;
-    return { src, tab, site };
+    return { src, tab, site, params };
   }
   function link({ src = state.src, tab = 'overview', site = null } = {}) {
     const base = BASE[src] || '#';
@@ -49,13 +53,14 @@
   // ---------- sidebar ----------
   // connection dot per data source: on = ready, warn = Google token expired (one click to reconnect), off = not connected
   function srcState(src) {
+    if (src === 'rep') return null;
     if (src === 'own') return OWN.user() ? ['on', 'Signed in'] : ['off', 'Signed out'];
     const sc = src === 'ga' ? CL.GA_SCOPE : CL.GSC_SCOPE;
     return CL.gAuth.has(sc) ? ['on', 'Connected'] : CL.gAuth.known(sc) ? ['warn', 'Needs reconnect'] : ['off', 'Not connected'];
   }
   function renderNav() {
-    $('#nav').innerHTML = NAV.map((g) => `<div class="nav-group"><div class="nav-label">${icon(g.ic)}<span>${esc(g.title)}</span><span class="nav-dot ${srcState(g.src)[0]}" title="${esc(srcState(g.src)[1])}"></span></div>${g.items.map(([tab, label, ic]) => {
-      const on = state.src === g.src && state.tab === tab;
+    $('#nav').innerHTML = NAV.map((g) => `<div class="nav-group"><div class="nav-label">${icon(g.ic)}<span>${esc(g.title)}</span>${srcState(g.src) ? `<span class="nav-dot ${srcState(g.src)[0]}" title="${esc(srcState(g.src)[1])}"></span>` : ''}</div>${g.items.map(([tab, label, ic]) => {
+      const on = state.src === g.src && (state.tab === tab || (tab === 'history' && (state.tab === 'view' || state.tab === 'compare')));
       return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
     }).join('')}</div>`).join('');
   }
@@ -73,10 +78,11 @@
     const R = currentRange();
     const rb = $('#rangeBtn'), sb = $('#siteBtn');
     rb.innerHTML = `${icon('calendar')}<span class="dd-text"><b>${esc(rangeLabel())}</b><span class="dd-sub">${esc(shortRange(R.start, R.end))}</span></span>${icon('chev')}`;
-    rb.disabled = state.tab === 'live' || state.tab === 'tracker';
-    rb.title = rb.disabled ? 'Live and Tracker are not date based' : '';
+    const repOther = state.src === 'rep' && state.tab !== 'overview';
+    rb.disabled = state.tab === 'live' || state.tab === 'tracker' || repOther;
+    rb.title = rb.disabled ? (repOther ? 'Saved reports keep the range they were made with' : 'Live and Tracker are not date based') : '';
     sb.innerHTML = `${state.site ? favicon(state.site) : icon('globe')}<span class="dd-text"><b>${esc(state.site || 'All sites')}</b></span>${icon('chev')}`;
-    sb.disabled = state.tab === 'tracker';
+    sb.disabled = state.tab === 'tracker' || repOther;
     $('#refresh').innerHTML = icon('refresh');
   }
 
@@ -135,7 +141,7 @@
   $('#refresh').addEventListener('click', () => {
     const b = $('#refresh');
     b.classList.add('spin'); setTimeout(() => b.classList.remove('spin'), 700);
-    OWN.clear(); GA.clear(); GSC.clear(); route();
+    OWN.clear(); GA.clear(); GSC.clear(); REP.clear(); route();
   });
 
   // ---------- account + theme ----------
@@ -198,7 +204,7 @@
     document.body.dataset.src = state.src;
     renderNav(); renderFilters(); renderAccount();
     OWN.updateBadge();
-    const ctx = { R: currentRange(), alive, site: state.site, tab: state.tab };
+    const ctx = { R: currentRange(), alive, site: state.site, tab: state.tab, params: state.params };
     SECTION[state.src]().route(ctx);
     if (prev.tab !== state.tab || prev.src !== state.src) scrollTo({ top: 0 });
   }

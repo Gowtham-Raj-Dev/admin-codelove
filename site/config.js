@@ -55,6 +55,24 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in': 'Portfolio',
   },
 
+  // Reports → "Copy for AI": where each site's source code lives (folder under repoRoot).
+  repoRoot: 'D:\\Gowtham\\My-Live-Websites',
+  repoFolders: {
+    'codelove.in': 'codelove-parent-domain',
+    'models.codelove.in': 'three-d-models',
+    'games.codelove.in': 'games.codelove.in',
+    'downloader.codelove.in': 'downloader',
+    'linkinbio.codelove.in': 'link-in-bio',
+    'videotogif.codelove.in': 'video-to-gif',
+    'videotoimages.codelove.in': 'video-to-images',
+    'utubeflow.codelove.in': 'youtube-for-all',
+    'javaplay.codelove.in': 'java-game-emu',
+    'videocut.codelove.in': 'video-cut',
+    'videomaker.codelove.in': 'video-maker',
+    'apps.codelove.in': 'apps-codelove',
+    'gowtham.codelove.in': 'gowtham-portfolio',
+  },
+
   // Google Search → "Not showing": searches each site should show up for. Edit freely.
   // A target counts as showing when a Google search containing it (any case) got an impression
   // for that site in Search Console. Seeded from each site's own SEO keywords (layout/seo files).

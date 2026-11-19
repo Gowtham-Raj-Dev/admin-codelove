@@ -471,19 +471,13 @@
     ], rows, { sort: 'checked' });
   }
 
-  async function viewIndex(R, alive, host) {
-    const { list, sites, missing } = await resolve(host);
-    if (!alive()) return;
-    if (!list.length) return noPropsView();
-    if (!host) return indexOverview(R, sites, missing);
-    if (!sites.length) { paint(crumb('index') + pageHead(EYEBROW, `Index status · ${esc(host)}`, '') + noPropCard(host)); return; }
-    const s = sites[0];
+  // Every known page of a site (sitemap.xml + pages Google showed in search + config.js indexPages + home),
+  // with its saved index check and rule-based advice. Used by Index status and by Reports.
+  async function indexData(s, R) {
+    const host = s.host;
     const [maps, pg] = await Promise.all([listSitemaps(s).catch((e) => ({ error: e.message })), pages(s, R)]);
     const sm = await sitemapUrls(host, Array.isArray(maps) ? maps.map((m) => m.path) : []);
-    if (!alive()) return;
     const sitemapOk = sm.urls.length > 0;
-
-    // every known page: sitemap.xml + pages Google showed in search + config.js indexPages (+ home)
     const byUrl = new Map();
     const add = (url) => { const u = normUrl(url); let r = byUrl.get(u); if (!r) byUrl.set(u, (r = { url: u, path: pathOf(u, host), inSitemap: false, inSearch: false, clicks: 0, impr: 0, ctr: 0, pos: 0, best: 0, kws: [] })); return r; };
     sm.urls.forEach((u) => (add(u).inSitemap = true));
@@ -496,6 +490,18 @@
       r.adv = advise(r, sitemapOk); r.todo = r.adv[0].s; r.win = r.adv.some((d) => d.k === 'win');
     });
     refresh();
+    return { maps, pg, sm, sitemapOk, rows, refresh };
+  }
+
+  async function viewIndex(R, alive, host) {
+    const { list, sites, missing } = await resolve(host);
+    if (!alive()) return;
+    if (!list.length) return noPropsView();
+    if (!host) return indexOverview(R, sites, missing);
+    if (!sites.length) { paint(crumb('index') + pageHead(EYEBROW, `Index status · ${esc(host)}`, '') + noPropCard(host)); return; }
+    const s = sites[0];
+    const { maps, sm, sitemapOk, rows, refresh } = await indexData(s, R);
+    if (!alive()) return;
 
     paint(crumb('index') + pageHead(`${EYEBROW} · ${esc(s.prop.url)}`, `Index status · ${esc(host)}`, `${num(rows.length)} pages known · search data ${rangeText(R)}`)
       + `<div class="banner">${icon('info')}<div>Google's Indexing API only accepts job-posting and live-stream pages, so asking Google to index a normal page is done by hand: open a page below → <b>Request indexing in Search Console</b> (Google allows about 10 a day). Index checks use the URL Inspection API and are saved in this browser.</div></div>`);
@@ -674,5 +680,10 @@
     }
   }
 
-  window.GSC = { route, clear: () => cache.clear(), stop: () => {}, signedIn: () => gAuth.has(SCOPE) };
+  // Data layer for Reports (report.js).
+  const lib = {
+    SCOPE, DAY_QUOTA, resolve, daily, series, keywords, targetRows, indexData, inspect, idx, rankOf, quotaUsed, normUrl,
+    keywordsPrev: (s, R) => keywords(s, { ...R, start: R.prevStart, end: R.prevEnd }),
+  };
+  window.GSC = { route, lib, clear: () => cache.clear(), stop: () => {}, signedIn: () => gAuth.has(SCOPE) };
 })();

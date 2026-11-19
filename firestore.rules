@@ -44,6 +44,21 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    // Daily reports made by the admin dashboard (Reports page). Owner only.
+    //   reports/{YYYY-MM-DD[_host]}           small summary (History list)
+    //   reports/{YYYY-MM-DD[_host]}/body/main  markdown + report JSON
+    match /reports/{id} {
+      allow read, delete: if isOwner();
+      allow create, update: if isOwner()
+        && id.matches('^20[0-9]{2}-[01][0-9]-[0-3][0-9](_[a-z0-9.-]{1,80})?$')
+        && request.resource.data.keys().hasOnly(['date', 'site', 'createdAt', 'range', 'summary', 'bytes']);
+      match /body/{part} {
+        allow read, delete: if isOwner();
+        allow create, update: if isOwner() && part == 'main'
+          && request.resource.data.keys().hasOnly(['md', 'data', 'problems']);
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

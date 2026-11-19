@@ -233,6 +233,7 @@
     const c = sumT(sites, 'cur'), p = sumT(sites, 'prev');
     const live = liveNow();
     paint(pageHead(EYEBROW, 'All sites', rangeSub(R, ` · ${sites.length} sites`), liveChip(live.length)));
+    if (window.REP) REP.banner(app, alive);
     if (!sites.some((s) => s.cur.v || s.cur.sec)) app.insertAdjacentHTML('beforeend', emptyState(R));
     app.append(metricChart(R, c, p, series(R, sites)));
 
@@ -397,6 +398,9 @@
     clear: () => cache.clear(),
     stop: () => { if (liveRender) liveListeners.delete(liveRender); liveRender = null; },
     user: () => user,
+    db: () => (init(), db),
+    authReady: () => (authReady ? Promise.resolve(user) : new Promise((r) => onAuthChange.push(r))),
+    lib: { load, pageRows, siteOf, hostOf, SINCE },
     onAuth: (f) => onAuthChange.push(f),
     updateBadge,
   };
