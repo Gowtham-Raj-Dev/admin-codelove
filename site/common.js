@@ -1,4 +1,4 @@
-/* Shared helpers for CodeLove Admin: formatting, dates, range state, icons, dropdowns, charts, tables. */
+/* Shared helpers for CodeLove Admin: formatting, dates, range state, icons, dropdowns, charts, tables, Google sign-in. */
 (() => {
   'use strict';
   const $ = (s, el = document) => el.querySelector(s);
@@ -122,6 +122,8 @@
     search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
     alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M16 7l3 3M14 9l2 2"/>',
+    eyeoff: '<path d="M3 3l18 18M10.6 5.1Q11.3 5 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4.2M6.6 6.6C4.4 8 2.8 10.1 2 12c1 2.5 5 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   };
   const icon = (name, cls = '') => `<svg class="ic ic-${name}${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   // Site favicon. Next.js sites only serve /icon.svg (no /favicon.ico), so try a few paths in order,
@@ -383,9 +385,11 @@
   }
 
   // ---------- tables & lists ----------
-  // Sortable, searchable table. cols: {key,label,num?,fmt?,bar?,html?,cls?}
+  // Sortable, searchable table. cols: {key,label,num?,fmt?,bar?,html?,cls?,lowFirst? (first click sorts ascending)}
+  // opts: {sort, asc, search, pageSize, expand(r) -> html of a detail row, rowKey(r) -> stable id for expanded rows}
   function table(container, cols, data, opts = {}) {
-    let sortKey = opts.sort || cols.find((c) => c.num)?.key, asc = false, q = '', shown = opts.pageSize || 50;
+    let sortKey = opts.sort || cols.find((c) => c.num)?.key, asc = !!opts.asc, q = '', shown = opts.pageSize || 50;
+    const X = opts.expand, open = new Set();
     container.innerHTML = `${opts.search ? `<div class="table-tools"><label class="search">${icon('search')}<input type="search" placeholder="${esc(opts.search)}" aria-label="Search"></label><span class="muted count"></span></div>` : ''}<div class="table-wrap"><table><thead><tr>${cols.map((c) => `<th data-k="${c.key}" class="${c.num ? 'num' : ''}" tabindex="0" aria-sort="none">${esc(c.label)}</th>`).join('')}</tr></thead><tbody></tbody></table></div><div class="more"></div>`;
     const tbody = $('tbody', container), more = $('.more', container), count = $('.count', container);
     const draw = () => {
@@ -394,11 +398,16 @@
       d.sort((a, b) => { const x = a[sortKey], y = b[sortKey]; const r = col?.num ? (x ?? -1) - (y ?? -1) : String(x).localeCompare(String(y)); return asc ? r : -r; });
       const maxes = {};
       cols.filter((c) => c.bar).forEach((c) => (maxes[c.key] = Math.max(1, ...d.map((r) => r[c.key] || 0))));
-      tbody.innerHTML = d.slice(0, shown).map((r) => `<tr>${cols.map((c) => {
-        const v = c.html ? c.html(r) : esc(c.fmt ? c.fmt(r[c.key], r) : r[c.key]);
-        if (c.bar) return `<td class="num"><span class="cellbar"><span>${v}</span><i style="width:${Math.round(((r[c.key] || 0) / maxes[c.key]) * 56)}px"></i></span></td>`;
-        return `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${v}</td>`;
-      }).join('')}</tr>`).join('') || `<tr><td colspan="${cols.length}" class="empty-row">No data yet</td></tr>`;
+      tbody.innerHTML = d.slice(0, shown).map((r) => {
+        const k = X ? String(opts.rowKey(r)) : '', on = X && open.has(k);
+        const tds = cols.map((c, ci) => {
+          let v = c.html ? c.html(r) : esc(c.fmt ? c.fmt(r[c.key], r) : r[c.key]);
+          if (X && ci === 0) v = `<span class="xcell"><button type="button" class="xbtn" aria-expanded="${on}" aria-label="${on ? 'Hide' : 'Show'} details">${icon('chev')}</button><span class="xbody">${v}</span></span>`;
+          if (c.bar) return `<td class="num"><span class="cellbar"><span>${v}</span><i style="width:${Math.round(((r[c.key] || 0) / maxes[c.key]) * 56)}px"></i></span></td>`;
+          return `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${v}</td>`;
+        }).join('');
+        return `<tr${X ? ` class="xrow${on ? ' open' : ''}" data-x="${esc(k)}"` : ''}>${tds}</tr>${on ? `<tr class="xsub"><td colspan="${cols.length}">${X(r)}</td></tr>` : ''}`;
+      }).join('') || `<tr><td colspan="${cols.length}" class="empty-row">No data yet</td></tr>`;
       container.querySelectorAll('th').forEach((th) => {
         const on = th.dataset.k === sortKey;
         th.classList.toggle('sorted', on); th.classList.toggle('asc', on && asc);
@@ -408,14 +417,24 @@
       more.innerHTML = d.length > shown ? `<button class="btn">Show more (${num(d.length - shown)} left)</button>` : '';
       const btn = $('button', more); if (btn) btn.onclick = () => { shown += 100; draw(); };
     };
-    const sortBy = (th) => { if (sortKey === th.dataset.k) asc = !asc; else { sortKey = th.dataset.k; asc = false; } draw(); };
+    const sortBy = (th) => { if (sortKey === th.dataset.k) asc = !asc; else { sortKey = th.dataset.k; asc = !!cols.find((c) => c.key === sortKey)?.lowFirst; } draw(); };
     container.querySelectorAll('th').forEach((th) => {
       th.addEventListener('click', () => sortBy(th));
       th.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(th); } });
     });
+    // Expandable rows: click a row (or its arrow button) to open the detail row under it; links still work.
+    if (X) tbody.addEventListener('click', (e) => {
+      const tr = e.target.closest('tr.xrow');
+      if (!tr || e.target.closest('a, input, button:not(.xbtn)')) return;
+      const k = tr.dataset.x, viaBtn = !!e.target.closest('.xbtn');
+      if (open.has(k)) open.delete(k); else open.add(k);
+      draw();
+      if (viaBtn) [...tbody.querySelectorAll('tr.xrow')].find((x) => x.dataset.x === k)?.querySelector('.xbtn').focus();
+    });
     const input = $('input[type=search]', container);
     if (input) input.addEventListener('input', () => { q = input.value.trim().toLowerCase(); shown = opts.pageSize || 50; draw(); });
     draw();
+    return { redraw: draw }; // after the row objects in `data` change
   }
 
   function barList(title, items, fmt = num, opts = {}) {
@@ -443,11 +462,75 @@
   }
   const el = (tag, cls, html = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
 
+  // ---------- Google sign-in: one OAuth token shared by Google Analytics and Google Search ----------
+  // Each section asks only for its own read-only scope when it is opened. Google adds it to what was
+  // granted before (include_granted_scopes), so once both are connected one token covers both.
+  const GA_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+  const gAuth = (() => {
+    let tok = null, client = null, pending = null;
+    try {
+      const t = JSON.parse(store.get('cl_admin_token', sessionStorage) || 'null');
+      // tokens saved before Google Search existed carry no scope list; they only had the GA scope
+      if (t && t.exp > Date.now() + 60e3) tok = { access: t.access, exp: t.exp, scopes: t.scopes || [GA_SCOPE] };
+    } catch { /* ignore */ }
+    function init() {
+      if (client) return true;
+      if (!window.google?.accounts?.oauth2) return false;
+      client = google.accounts.oauth2.initTokenClient({
+        client_id: CFG.clientId,
+        scope: GA_SCOPE,
+        include_granted_scopes: true,
+        login_hint: CFG.ownerEmail || undefined,
+        callback: (resp) => {
+          const p = pending; pending = null;
+          if (resp.error) { p?.reject(new Error(resp.error_description || resp.error)); return; }
+          const scopes = String(resp.scope || '').split(/\s+/).filter(Boolean);
+          tok = { access: resp.access_token, exp: Date.now() + (resp.expires_in - 60) * 1000, scopes };
+          store.set('cl_admin_token', JSON.stringify(tok), sessionStorage);
+          if (p && !scopes.includes(p.scope)) { p.reject(new Error('Google did not give the read-only permission this page needs. Press the button again and tick the permission checkbox on the Google screen.')); return; }
+          p?.resolve(tok.access);
+        },
+        error_callback: (err) => {
+          const p = pending; pending = null;
+          p?.reject(new Error(err.type === 'popup_closed' ? 'The Google window was closed before sign-in finished.' : err.type === 'popup_failed_to_open' ? 'The browser blocked the Google popup. Allow popups for this site.' : err.message || err.type || 'Sign-in closed'));
+        },
+      });
+      return true;
+    }
+    return {
+      token: () => (tok ? tok.access : null),
+      has: (scope) => !!tok && tok.scopes.includes(scope),
+      /** Popup asking for `scope` on top of what's already granted. Call from a click (browsers block other popups). */
+      request(scope, prompt = '') {
+        return new Promise((resolve, reject) => {
+          if (!init()) { reject(new Error('Google sign-in script not loaded yet. Try again in a second.')); return; }
+          pending = { resolve, reject, scope };
+          client.requestAccessToken({ scope, prompt, include_granted_scopes: true });
+        });
+      },
+      signOut() {
+        if (tok && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(tok.access, () => {});
+        tok = null;
+        store.set('cl_admin_token', null, sessionStorage);
+      },
+    };
+  })();
+  /** Fixes for the usual Google sign-in errors, shown under a "Sign in with Google" button. */
+  function oauthHelp(extra = '') {
+    const id = CFG.clientId || '', project = id.split('-')[0];
+    return `<div class="help"><b>Google shows "Error 400: origin_mismatch"?</b> The OAuth client doesn't allow this address yet. One-time fix:
+        <ol><li>Open <a href="https://console.cloud.google.com/apis/credentials/oauthclient/${encodeURIComponent(id)}?project=${encodeURIComponent(project)}" target="_blank" rel="noopener">this OAuth client in Google Cloud</a> (signed in as the owner Gmail).</li>
+        <li>Under <i>Authorized JavaScript origins</i> click <b>Add URI</b> and enter <code>${esc(location.origin)}</code> (no slash at the end).</li>
+        <li>Click <b>Save</b>.</li>
+        <li>Wait 5 minutes, then sign in again.</li></ol>
+        <div style="margin-top:8px"><b>"Access blocked … not completed the Google verification process"?</b> Google Auth Platform → Audience → add this Gmail under <b>Test users</b>.</div>${extra}</div>`;
+  }
+
   window.CL = {
     $, $$, store, num, compact, pct, dur, durAxis, pctAxis, esc, div, iso, addDays, parseIso, istToday, fmtDate, rangeText, shortRange, eachDay,
     PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, axisMax,
     icon, favicon, favOk, favErr, popover, closePop, selectMenu,
     showTip, hideTip, lineChart, kpiChart, columns, sparkline, deltaHtml, table, barList,
-    pageHead, loading, paint, el,
+    pageHead, loading, paint, el, gAuth, oauthHelp,
   };
 })();

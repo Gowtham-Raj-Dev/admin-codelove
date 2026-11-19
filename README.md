@@ -11,6 +11,13 @@ Two sections:
   Deploy: `firebase deploy --only firestore`.
   Free plan: 20k writes + 50k reads per day.
 - **Google Analytics** (`#/ga/…`): GA4 Data/Admin API with the owner's Google login.
+- **Google Search** (`#/search/…`, `site/gsc.js`): Search Console API with the same Google login (one OAuth
+  token; the `webmasters.readonly` scope is asked for the first time this section opens).
+  Keywords per site with the Google results page (position 1–10 = page 1), Pages → their keywords,
+  Index status (URL Inspection API on demand, ~2,000/day per property, results kept in localStorage;
+  Sitemaps API with "Resubmit", which asks for the `webmasters` write scope only on that click; IndexNow
+  ping; rule-based "what to do" per page), and Not showing (`config.js` → `searchKeywords` vs real searches).
+  Domain properties (`sc-domain:codelove.in`) and URL-prefix properties both work.
 
 Private analytics dashboard for every CodeLove site: users, sessions, views, time spent,
 per-site and per-page, plus a live (last 30 min) view.
@@ -31,8 +38,9 @@ earlier days are shown as "no data", not as zero.
 ## One-time setup
 
 1. Google Cloud (the project the GA4/Firebase properties live in, or any project):
-   enable **Google Analytics Data API** and **Google Analytics Admin API**.
-2. OAuth consent screen: External, keep in **Testing**, add your Gmail as a **test user**.
+   enable **Google Analytics Data API**, **Google Analytics Admin API** and **Google Search Console API**.
+2. OAuth consent screen: External, keep in **Testing**, add your Gmail as a **test user**. Data access
+   scopes: `analytics.readonly`, `webmasters.readonly`, `webmasters` (the last one only for "Resubmit sitemap").
 3. Credentials → OAuth client ID → Web application. Authorized JavaScript origins:
    `https://admin.codelove.in`, `http://localhost:5500`. (Missing origin = Google shows
    "Error 400: origin_mismatch" when you press Sign in on the Google Analytics page.)

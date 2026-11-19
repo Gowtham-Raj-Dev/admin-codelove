@@ -1,8 +1,9 @@
 /* CodeLove Admin — app shell: router, sidebar, filter dropdowns, account menu, theme.
- *   #/...    CodeLove Analytics (our own tracker, Firestore)  -> own.js
- *   #/ga/... Google Analytics 4                               -> ga.js
- * Routes: #/  #/pages  #/live  #/tracker  #/ga  #/ga/pages  #/ga/live
- * Site filter: #/site/<host> (overview of one site) or ?site=<host> on pages/live. */
+ *   #/...        CodeLove Analytics (our own tracker, Firestore)  -> own.js
+ *   #/ga/...     Google Analytics 4                               -> ga.js
+ *   #/search/... Google Search (Search Console keywords)          -> gsc.js
+ * Routes: #/  #/pages  #/live  #/tracker  #/ga  #/ga/pages  #/ga/live  #/search  #/search/pages  #/search/index  #/search/missing
+ * Site filter: #/site/<host> (overview of one site) or ?site=<host> on the other tabs. */
 (() => {
   'use strict';
   const { $, store, esc, icon, favicon, popover, closePop, PRESETS, range, rangeBounds, currentRange, setRange, rangeLabel, shortRange, hideTip, iso, istToday } = CL;
@@ -14,7 +15,10 @@
   const NAV = [
     { src: 'own', title: 'CodeLove Analytics', ic: 'heart', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live'], ['tracker', 'Tracker', 'code']] },
     { src: 'ga', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live']] },
+    { src: 'gsc', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'file'], ['index', 'Index status', 'check'], ['missing', 'Not showing', 'eyeoff']] },
   ];
+  const BASE = { own: '#', ga: '#/ga', gsc: '#/search' };
+  const SECTION = { own: () => OWN, ga: () => GA, gsc: () => GSC };
 
   function parse() {
     const raw = (location.hash || '#/').slice(1) || '/';
@@ -22,19 +26,21 @@
     let path = qi >= 0 ? raw.slice(0, qi) : raw;
     const params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : '');
     let src = 'own';
-    if (path === '/ga' || path.startsWith('/ga/')) { src = 'ga'; path = path.slice(3) || '/'; }
+    for (const [s, pre] of [['ga', '/ga'], ['gsc', '/search']]) if (path === pre || path.startsWith(pre + '/')) { src = s; path = path.slice(pre.length) || '/'; }
     let site = params.get('site') || null, tab = 'overview';
     if (path.startsWith('/site/')) site = decodeURIComponent(path.slice(6));
     else if (path.startsWith('/pages')) tab = 'pages';
-    else if (path.startsWith('/live')) tab = 'live';
+    else if (path.startsWith('/live') && src !== 'gsc') tab = 'live';
     else if (path.startsWith('/tracker') && src === 'own') tab = 'tracker';
+    else if (path.startsWith('/missing') && src === 'gsc') tab = 'missing';
+    else if (path.startsWith('/index') && src === 'gsc') tab = 'index';
     if (site) site = site.toLowerCase().replace(/[^a-z0-9.-]/g, '') || null;
     return { src, tab, site };
   }
   function link({ src = state.src, tab = 'overview', site = null } = {}) {
-    const base = src === 'ga' ? '#/ga' : '#';
+    const base = BASE[src] || '#';
     if (tab === 'tracker') return '#/tracker';
-    if (tab === 'overview') return site ? `${base}/site/${encodeURIComponent(site)}` : src === 'ga' ? '#/ga' : '#/';
+    if (tab === 'overview') return site ? `${base}/site/${encodeURIComponent(site)}` : base === '#' ? '#/' : base;
     return `${base}/${tab}${site ? '?site=' + encodeURIComponent(site) : ''}`;
   }
   CL.link = link;
@@ -123,7 +129,7 @@
   $('#refresh').addEventListener('click', () => {
     const b = $('#refresh');
     b.classList.add('spin'); setTimeout(() => b.classList.remove('spin'), 700);
-    OWN.clear(); GA.clear(); route();
+    OWN.clear(); GA.clear(); GSC.clear(); route();
   });
 
   // ---------- account + theme ----------
@@ -145,18 +151,19 @@
       <div class="acct-rows">
         <div class="acct-row"><span>CodeLove Analytics</span><span class="status${u ? ' on' : ''}">${u ? 'Signed in' : 'Signed out'}</span></div>
         <div class="acct-row"><span>Google Analytics</span><span class="status${GA.signedIn() ? ' on' : ''}">${GA.signedIn() ? 'Connected' : 'Not connected'}</span></div>
+        <div class="acct-row"><span>Google Search Console</span><span class="status${GSC.signedIn() ? ' on' : ''}">${GSC.signedIn() ? 'Connected' : 'Not connected'}</span></div>
       </div>
       <div class="pop-sep"></div>
       <div class="pop-title">Theme</div>
       <div class="theme-seg">${THEMES.map(([v, l, ic]) => `<button type="button" data-t="${v}" aria-pressed="${theme() === v}">${icon(ic)}${l}</button>`).join('')}</div>
-      ${u || GA.signedIn() ? `<div class="pop-sep"></div><button type="button" class="mi danger" id="signoutBtn" role="menuitem">${icon('logout')}<span class="mi-label">Sign out of both</span></button>` : ''}`;
+      ${u || CL.gAuth.token() ? `<div class="pop-sep"></div><button type="button" class="mi danger" id="signoutBtn" role="menuitem">${icon('logout')}<span class="mi-label">Sign out of everything</span></button>` : ''}`;
     el.querySelectorAll('.theme-seg button').forEach((b) => b.addEventListener('click', () => {
       setTheme(b.dataset.t);
       el.querySelectorAll('.theme-seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
       window.dispatchEvent(new Event('resize'));
     }));
     const so = $('#signoutBtn', el);
-    if (so) so.addEventListener('click', () => { close(false); GA.signOut(); OWN.signOut(); route(); });
+    if (so) so.addEventListener('click', () => { close(false); GA.signOut(); GSC.clear(); OWN.signOut(); route(); });
   }, { align: 'end' }));
   // charts read CSS colours at draw time; redraw them when the OS theme flips
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (theme() === 'system') route(); });
@@ -174,7 +181,7 @@
     renderNav(); renderFilters(); renderAccount();
     OWN.updateBadge();
     const ctx = { R: currentRange(), alive, site: state.site, tab: state.tab };
-    (state.src === 'ga' ? GA : OWN).route(ctx);
+    SECTION[state.src]().route(ctx);
     if (prev.tab !== state.tab || prev.src !== state.src) scrollTo({ top: 0 });
   }
   addEventListener('hashchange', route);

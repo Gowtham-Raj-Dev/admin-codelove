@@ -2,7 +2,7 @@
  * Numbers come straight from the GA4 API (same data as analytics.google.com). */
 (() => {
   'use strict';
-  const { $, store, num, compact, pct, dur, durAxis, pctAxis, esc, div, iso, parseIso, addDays, rangeText, kpiChart, deltaHtml, table, barList, favicon, icon, pageHead, loading, paint, el } = CL;
+  const { $, store, num, compact, pct, dur, durAxis, pctAxis, esc, div, iso, parseIso, addDays, rangeText, kpiChart, deltaHtml, table, barList, favicon, icon, pageHead, loading, paint, el, gAuth, oauthHelp } = CL;
   const CFG = window.ADMIN_CONFIG || {};
   const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
   const ADMIN_API = 'https://analyticsadmin.googleapis.com/v1beta';
@@ -10,53 +10,16 @@
   const app = $('#app');
   const EYEBROW = 'Google Analytics';
 
-  // ---------- auth ----------
-  let token = null, tokenClient = null, pendingAuth = null;
-  (function loadToken() {
-    const raw = store.get('cl_admin_token', sessionStorage);
-    if (!raw) return;
-    try { const t = JSON.parse(raw); if (t.exp > Date.now() + 60e3) token = t.access; } catch { /* ignore */ }
-  })();
-  function initTokenClient() {
-    if (tokenClient) return true;
-    if (!window.google?.accounts?.oauth2) return false;
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: CFG.clientId,
-      scope: SCOPE,
-      login_hint: CFG.ownerEmail || undefined,
-      callback: (resp) => {
-        const p = pendingAuth; pendingAuth = null;
-        if (resp.error) { p?.reject(new Error(resp.error_description || resp.error)); return; }
-        token = resp.access_token;
-        store.set('cl_admin_token', JSON.stringify({ access: token, exp: Date.now() + (resp.expires_in - 60) * 1000 }), sessionStorage);
-        p?.resolve(token);
-      },
-      error_callback: (err) => {
-        const p = pendingAuth; pendingAuth = null;
-        p?.reject(new Error(err.type === 'popup_closed' ? 'The Google window was closed before sign-in finished.' : err.type === 'popup_failed_to_open' ? 'The browser blocked the Google popup. Allow popups for this site.' : err.message || err.type || 'Sign-in closed'));
-      },
-    });
-    return true;
-  }
-  function signIn(prompt = '') {
-    return new Promise((resolve, reject) => {
-      if (!initTokenClient()) { reject(new Error('Google sign-in script not loaded yet. Try again in a second.')); return; }
-      pendingAuth = { resolve, reject };
-      tokenClient.requestAccessToken({ prompt });
-    });
-  }
-  function signOut() {
-    if (token && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(token, () => {});
-    token = null; cache.clear(); props = null;
-    store.set('cl_admin_token', null, sessionStorage);
-  }
+  // ---------- auth (token shared with Google Search, see CL.gAuth) ----------
+  const signIn = (prompt = '') => gAuth.request(SCOPE, prompt);
+  function signOut() { gAuth.signOut(); cache.clear(); props = null; }
 
   // ---------- API ----------
   const cache = new Map();
   async function api(url, body, retried = false) {
     const res = await fetch(url, {
       method: body ? 'POST' : 'GET',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      headers: { Authorization: 'Bearer ' + gAuth.token(), 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 401 && !retried) { await signIn(''); return api(url, body, true); }
@@ -330,27 +293,20 @@
   }
 
   function viewSignIn(msg) {
-    const origin = location.origin;
-    const clientShort = (CFG.clientId || '').split('-')[0];
     paint(`<section class="card signin"><span class="logo" aria-hidden="true"></span><div class="eyebrow">Google Analytics</div><h1>Connect Google Analytics</h1>
       <p>Sign in with the Google account that owns the GA4 properties${CFG.ownerEmail ? ` (<b>${esc(CFG.ownerEmail)}</b>)` : ''}. Read-only access.</p>
       ${msg ? `<div class="error">${icon('alert')}<div>${esc(msg)}</div></div>` : ''}
       <button class="btn lg" id="gaSignin">${CL.G_LOGO || ''}Sign in with Google</button>
-      <div class="help"><b>Google shows "Error 400: origin_mismatch"?</b> The OAuth client doesn't allow this address yet. One-time fix:
-        <ol><li>Open <a href="https://console.cloud.google.com/apis/credentials/oauthclient/${encodeURIComponent(CFG.clientId || '')}?project=${encodeURIComponent(clientShort)}" target="_blank" rel="noopener">this OAuth client in Google Cloud</a> (signed in as the owner Gmail).</li>
-        <li>Under <i>Authorized JavaScript origins</i> click <b>Add URI</b> and enter <code>${esc(origin)}</code> (no slash at the end).</li>
-        <li>Click <b>Save</b>.</li>
-        <li>Wait 5 minutes, then sign in again.</li></ol>
-        <div style="margin-top:8px"><b>"Access blocked … not completed the Google verification process"?</b> Google Auth Platform → Audience → add this Gmail under <b>Test users</b>.</div></div></section>`, false);
+      ${oauthHelp()}</section>`, false);
     $('#gaSignin').onclick = async () => {
-      try { await signIn(token ? '' : 'select_account'); window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (e) { viewSignIn(e.message); }
+      try { await signIn(gAuth.token() ? '' : 'select_account'); window.dispatchEvent(new HashChangeEvent('hashchange')); } catch (e) { viewSignIn(e.message); }
     };
   }
 
   async function route({ R, alive, site, tab }) {
     clearTimeout(liveTimer);
     if (!CFG.clientId) { paint(`<div class="error">${icon('alert')}<div>Set <code>clientId</code> in config.js to use Google Analytics.</div></div>`, false); return; }
-    if (!token) return viewSignIn();
+    if (!gAuth.has(SCOPE)) return viewSignIn();
     loading('Loading Google Analytics…');
     try {
       if (tab === 'pages') await viewPages(R, alive, site);
@@ -364,5 +320,5 @@
     }
   }
 
-  window.GA = { route, signOut, clear: () => { cache.clear(); props = null; }, stop: () => clearTimeout(liveTimer), signedIn: () => !!token };
+  window.GA = { route, signOut, clear: () => { cache.clear(); props = null; }, stop: () => clearTimeout(liveTimer), signedIn: () => gAuth.has(SCOPE) };
 })();
