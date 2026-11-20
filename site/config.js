@@ -44,6 +44,18 @@ window.ADMIN_CONFIG = {
     'downloader.codelove.in': 'AdSense is off on purpose: a downloader breaks the AdSense copyright policy and could put the whole account at risk.',
   },
 
+  // Site health notes, for checks the page HTML can't show. ['ok', why] = installed but loaded by JavaScript
+  // (green), ['skip', why] = not needed on this site (grey "Not needed"). A tag found in the HTML always wins.
+  // Checked against each repo on 2026-11-20; update if a site changes how it loads a tag.
+  healthNotes: {
+    'games.codelove.in': { ga: ['ok', 'via Firebase Analytics (G-65L0LB1CJT + games property G-MEHYR05XXV), added by JavaScript'] },
+    'models.codelove.in': { ga: ['ok', 'via Firebase Analytics (G-65L0LB1CJT), added by JavaScript'] },
+    'linkinbio.codelove.in': { ga: ['ok', 'via Firebase Analytics (measurement ID from the deploy secret), added by JavaScript'] },
+    'videomaker.codelove.in': { ga: ['ok', 'via Firebase Analytics (G-E7XZ96YCVC), added by JavaScript'] },
+    'apps.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site; the Android apps use AdMob/Firebase instead'] },
+    'gowtham.codelove.in': { ga: ['skip', 'personal portfolio; CodeLove Analytics covers it'] },
+  },
+
   // Friendly names shown in the site picker (falls back to the subdomain).
   siteNames: {
     'codelove.in': 'CodeLove',

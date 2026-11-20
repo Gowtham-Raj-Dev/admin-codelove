@@ -97,7 +97,7 @@
       if (el.dataset.k === 'score') el.innerHTML = cell(u); else el.innerHTML = counts(u);
     });
     async function checkOne(u) {
-      const res = await T().grab(u, 20e3);
+      const res = await T().grabPage(u, 20e3);
       const a = T().audit(res);
       full.set(u, a);
       saved[u] = { score: a.score, fix: a.C.filter((c) => c.lvl === 'fix').length, warn: a.C.filter((c) => c.lvl === 'warn').length, at: Date.now() };

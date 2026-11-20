@@ -30,14 +30,39 @@
     } finally { clearTimeout(t); }
   }
 
-  /** Everything we can read from a page's HTML, plus a list of checks (fix / warn / ok). */
+  /** grab() plus the page's own small loader scripts (e.g. JavaPlay's /assets/site-tags.js, which adds t.js, GA and
+   *  AdSense by JavaScript), so tags loaded that way are found too. Next.js chunks (/_next/) are skipped: too big. */
+  async function grabPage(url, ms) {
+    const res = await grab(url, ms);
+    res.loaders = '';
+    if (!res.ok || !res.text) return res;
+    let base; try { base = new URL(res.url || url); } catch { return res; }
+    const srcs = [...res.text.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi)].map((m) => m[1])
+      .map((s) => { try { return new URL(s, base); } catch { return null; } })
+      .filter((u) => u && u.hostname === base.hostname && !u.pathname.startsWith('/_next/') && /\.m?js$/i.test(u.pathname))
+      .slice(0, 4);
+    const texts = await Promise.all(srcs.map((u) => grab(u.href, 8e3).then((r) => (r.ok && r.size < 300e3 ? r.text : ''))));
+    res.loaders = texts.join('\n');
+    return res;
+  }
+
+  /** Per-site notes for checks the HTML can't show (tag loaded by Firebase) or that a site doesn't need.
+   *  config.js healthNotes: { host: { ga|tracker|adsense: ['ok' | 'skip', 'why'] } }; adsenseOff counts as adsense skip. */
+  function siteNote(host, key) {
+    const n = ((CFG.healthNotes || {})[host] || {})[key];
+    if (n) return n;
+    if (key === 'adsense' && (CFG.adsenseOff || {})[host]) return ['skip', CFG.adsenseOff[host]];
+    return null;
+  }
+
+  /** Everything we can read from a page's HTML, plus a list of checks (fix / warn / ok / skip). */
   function audit(res) {
     const doc = new DOMParser().parseFromString(res.text || '', 'text/html');
     const q = (s) => doc.querySelector(s);
     const meta = (n) => (q(`meta[name="${n}" i]`)?.getAttribute('content') || '').trim();
     const prop = (p) => (q(`meta[property="${p}" i]`)?.getAttribute('content') || '').trim();
     let host = ''; try { host = new URL(res.url).hostname; } catch { /* ignore */ }
-    const raw = res.text || '';
+    const raw = (res.text || '') + '\n' + (res.loaders || '');
     const d = {
       title: (doc.title || '').trim(), desc: meta('description'), robots: meta('robots').toLowerCase(), viewport: meta('viewport'),
       canonical: q('link[rel="canonical" i]')?.getAttribute('href') || '', lang: doc.documentElement.getAttribute('lang') || '',
@@ -80,24 +105,31 @@
     add(d.icon ? 'ok' : 'warn', 'Favicon', d.icon ? 'Yes' : 'Missing', 'Add <link rel="icon">.');
     add(!d.noAlt ? 'ok' : 'warn', 'Image alt text', d.imgs ? `${d.imgs - d.noAlt} of ${d.imgs} images have alt` : 'No images in the HTML', 'Give every <img> an alt text.');
     add(d.words >= 250 ? 'ok' : 'warn', 'Text in the HTML', `${num(d.words)} words`, 'Little text in the HTML (often a JavaScript app). Add real text — what the tool does, how to use it, FAQs — Google and AdSense need it.');
-    add(d.tracker ? 'ok' : 'warn', 'CodeLove Analytics tracker', d.tracker ? 'Installed' : 'Missing', 'Add <script defer src="https://admin.codelove.in/t.js"></script> to <head>.');
-    add(d.ga ? 'ok' : 'warn', 'Google Analytics tag', d.ga ? 'Installed' : 'Not found', 'Add the GA4 gtag snippet if you want GA data for this site.');
-    add(d.adsense ? 'ok' : 'warn', 'AdSense code', d.adsense ? 'Installed' : 'Not found', 'Add the AdSense code from AdSense → Setup.');
-    const w = { ok: 1, warn: 0.5, fix: 0 };
+    // A tag found in the HTML always wins; otherwise a site note can say it's loaded by JavaScript (ok) or not needed (skip).
+    const tag = (key, found, label, missing, fix) => {
+      if (found) return add('ok', label, 'Installed');
+      const n = siteNote(host, key);
+      if (n) return add(n[0], label, n[0] === 'skip' ? `Not needed — ${n[1]}` : `Installed — ${n[1]}`);
+      add('warn', label, missing, fix);
+    };
+    tag('tracker', d.tracker, 'CodeLove Analytics tracker', 'Missing', 'Add <script async src="https://admin.codelove.in/t.js"></script> to <head>.');
+    tag('ga', d.ga, 'Google Analytics tag', 'Not found', 'Add the GA4 gtag snippet if you want GA data for this site.');
+    tag('adsense', d.adsense, 'AdSense code', 'Not found', 'Add the AdSense code from AdSense → Setup.');
+    const w = { ok: 1, warn: 0.5, fix: 0, skip: 1 };
     const score = Math.round((C.reduce((a, c) => a + w[c.lvl], 0) / C.length) * 100);
     return { d, C, score };
   }
 
-  const LVL = { fix: ['Fix', 'none', 'x'], warn: ['Improve', 'p23', 'alert'], ok: ['OK', 'p1', 'check'] };
+  const LVL = { fix: ['Fix', 'none', 'x'], warn: ['Improve', 'p23', 'alert'], ok: ['OK', 'p1', 'check'], skip: ['Not needed', 'deep', 'info'] };
   const scorePill = (s) => `<span class="score ${s >= 85 ? 'good' : s >= 60 ? 'mid' : 'bad'}">${s}</span>`;
-  const checkList = (C, onlyBad = false) => `<ul class="chk">${C.filter((c) => !onlyBad || c.lvl !== 'ok').map((c) => `<li class="chk-${c.lvl}">${icon(LVL[c.lvl][2])}<div><b>${esc(c.label)}</b><span class="chk-v">${esc(c.value)}</span>${c.lvl !== 'ok' && c.fix ? `<span class="chk-fix">${esc(c.fix)}</span>` : ''}</div></li>`).join('')}</ul>`;
+  const checkList = (C, onlyBad = false) => `<ul class="chk">${C.filter((c) => !onlyBad || (c.lvl !== 'ok' && c.lvl !== 'skip')).map((c) => `<li class="chk-${c.lvl}">${icon(LVL[c.lvl][2])}<div><b>${esc(c.label)}</b><span class="chk-v">${esc(c.value)}</span>${c.lvl !== 'ok' && c.fix ? `<span class="chk-fix">${esc(c.fix)}</span>` : ''}</div></li>`).join('')}</ul>`;
 
   // ---------- Site health ----------
   const health = new Map(); // host -> promise
   function checkHost(host) {
     if (!health.has(host)) health.set(host, (async () => {
       // home page first and alone, so its response time isn't inflated by the other requests
-      const home = await grab(`https://${host}/`, 15e3);
+      const home = await grabPage(`https://${host}/`, 15e3);
       const [robots, sitemap] = await Promise.all([grab(`https://${host}/robots.txt`, 15e3), grab(`https://${host}/sitemap.xml`, 15e3)]);
       const a = audit(home);
       const locs = (sitemap.text.match(/<loc>/gi) || []).length;
@@ -105,7 +137,7 @@
         { lvl: robots.ok ? (/^\s*sitemap:/im.test(robots.text) ? 'ok' : 'warn') : 'warn', label: 'robots.txt', value: robots.ok ? (/^\s*sitemap:/im.test(robots.text) ? 'OK, lists the sitemap' : 'No "Sitemap:" line') : `HTTP ${robots.status || 'error'}`, fix: `Add robots.txt with "Sitemap: https://${host}/sitemap.xml".` },
         { lvl: sitemap.ok && locs ? 'ok' : 'fix', label: 'sitemap.xml', value: sitemap.ok ? `${num(locs)} URLs` : `HTTP ${sitemap.status || 'error'}`, fix: 'Add sitemap.xml listing every public page, then submit it in Search Console.' },
       );
-      const w = { ok: 1, warn: 0.5, fix: 0 };
+      const w = { ok: 1, warn: 0.5, fix: 0, skip: 1 };
       if (home.ok) a.score = Math.round((a.C.reduce((s, c) => s + w[c.lvl], 0) / a.C.length) * 100);
       return { host, home, ...a, locs };
     })());
@@ -165,7 +197,7 @@
     $('#pcForm').onsubmit = (e) => { e.preventDefault(); location.hash = `${CL.link({ src: 'tools', tab: 'checker' })}?url=${encodeURIComponent(e.target.url.value.trim())}`; };
     if (!url) return;
     app.insertAdjacentHTML('beforeend', '<p class="empty ad-wait" id="pcWait"><span class="spinner"></span>Reading the page…</p>');
-    const res = await grab(url);
+    const res = await grabPage(url);
     if (!alive()) return;
     $('#pcWait')?.remove();
     const { d, C, score } = audit(res);
@@ -337,5 +369,5 @@
     else if (tab === 'links') viewLinks();
     else await viewHealth(alive, site);
   }
-  window.TOOLS = { route, clear: () => { health.clear(); if (window.TOOLS2) TOOLS2.clear(); }, stop: () => {}, lib: { grab, audit, checkList, scorePill, nameOf } };
+  window.TOOLS = { route, clear: () => { health.clear(); if (window.TOOLS2) TOOLS2.clear(); }, stop: () => {}, lib: { grab, grabPage, audit, checkList, scorePill, nameOf } };
 })();
