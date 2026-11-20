@@ -258,7 +258,11 @@
     table($('.dash-sites .tbl'), [
       { key: 'name', label: 'Site', html: (r) => `<a class="site-cell" href="https://${esc(r.host)}/" target="_blank" rel="noopener">${favicon(r.host)}<span><b>${esc(nameOf(r.host))}</b><span class="note block">${esc(r.host)}</span></span></a>` },
       { key: 'reach', label: 'Readable', num: true, html: (r) => (r.blocked ? '<span class="gp deep" title="The browser could not read this site (CORS or offline)">Can\'t check</span>' : okPill(r.reachable, 'Yes', 'Error')) },
-      { key: 'code', label: 'AdSense code', num: true, html: (r) => (r.blocked ? '–' : okPill(r.code || r.meta, r.code ? 'Yes' : 'Meta tag', 'Missing')) },
+      { key: 'code', label: 'AdSense code', num: true, html: (r) => {
+        const off = ((window.ADMIN_CONFIG || {}).adsenseOff || {})[r.host];
+        if (off && !(r.code || r.meta)) return `<span class="gp deep" title="${esc(off)}">Off (on purpose)</span>`;
+        return r.blocked ? '–' : okPill(r.code || r.meta, r.code ? 'Yes' : 'Meta tag', 'Missing');
+      } },
       { key: 'privacy', label: 'Privacy', num: true, html: (r) => (r.blocked ? '–' : okPill(r.privacy)) },
       { key: 'about', label: 'About', num: true, html: (r) => (r.blocked ? '–' : okPill(r.about)) },
       { key: 'contact', label: 'Contact', num: true, html: (r) => (r.blocked ? '–' : okPill(r.contact)) },

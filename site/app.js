@@ -16,13 +16,16 @@
   let state = { src: 'own', tab: 'overview', site: null };
 
   const NAV = [
-    { src: 'rep', tabLabel: 'Dashboard', title: 'Dashboard', ic: 'grid', items: [['overview', 'Overview', 'grid'], ['daily', 'Daily report', 'file'], ['history', 'History', 'calendar']] },
-    { src: 'own', tabLabel: 'Analytics', title: 'CodeLove Analytics', ic: 'heart', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live'], ['tracker', 'Tracker', 'code']] },
-    { src: 'ga', tabLabel: 'Google Analytics', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'grid'], ['pages', 'Pages', 'file'], ['live', 'Live', 'live']] },
-    { src: 'gsc', tabLabel: 'Google Search', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'file'], ['index', 'Index status', 'check'], ['missing', 'Not showing', 'eyeoff']] },
-    { src: 'ads', tabLabel: 'AdSense', title: 'AdSense', ic: 'coin', items: [['overview', 'Overview', 'grid'], ['sites', 'Sites & approval', 'check'], ['setup', 'Setup', 'code']] },
-    { src: 'tools', tabLabel: 'Tools', title: 'Tools', ic: 'tool', items: [['overview', 'Site health', 'live'], ['uptime', 'Uptime', 'alert'], ['checker', 'Page checker', 'search'], ['broken', 'Broken links', 'x'], ['ranks', 'Rank tracker', 'bars'], ['speed', 'PageSpeed', 'gauge'], ['utm', 'UTM link builder', 'link'], ['links', 'Quick links', 'ext']] },
+    { src: 'rep', tabLabel: 'Dashboard', title: 'Dashboard', ic: 'grid', items: [['overview', 'Overview', 'overview'], ['daily', 'Daily report', 'report'], ['history', 'History', 'history']] },
+    { src: 'own', tabLabel: 'Analytics', title: 'CodeLove Analytics', ic: 'heart', items: [['overview', 'Overview', 'overview'], ['pages', 'Pages', 'pages'], ['live', 'Live', 'live'], ['tracker', 'Tracker', 'code']] },
+    { src: 'ga', tabLabel: 'Google Analytics', title: 'Google Analytics', ic: 'bars', items: [['overview', 'Overview', 'overview'], ['pages', 'Pages', 'pages'], ['live', 'Live', 'live']] },
+    { src: 'gsc', tabLabel: 'Google Search', title: 'Google Search', ic: 'search', items: [['overview', 'Keywords', 'key'], ['pages', 'Pages', 'pages'], ['index', 'Index status', 'task'], ['missing', 'Not showing', 'eyeoff']] },
+    { src: 'ads', tabLabel: 'AdSense', title: 'AdSense', ic: 'coin', items: [['overview', 'Overview', 'overview'], ['sites', 'Sites & approval', 'verified'], ['setup', 'Setup', 'setup']] },
+    { src: 'tools', tabLabel: 'Tools', title: 'Tools', ic: 'tool', items: [['overview', 'Site health', 'health'], ['uptime', 'Uptime', 'uptime'], ['checker', 'Page checker', 'fact'], ['broken', 'Broken links', 'linkoff'], ['ranks', 'Rank tracker', 'trend'], ['speed', 'PageSpeed', 'gauge'], ['utm', 'UTM link builder', 'addlink'], ['links', 'Quick links', 'bookmarks']] },
   ];
+  // Sections and tools that have a real product logo use it instead of a generic icon.
+  const groupIcon = (g) => CL.logo(g.src) || icon(g.ic);
+  const itemIcon = (src, tab, ic) => (src === 'tools' && tab === 'speed' ? CL.logo('speed', 'item-logo') : '') || icon(ic);
   // Last sub-page opened in each section, so going back to a tab returns to where you were.
   const lastTab = {};
   const BASE = { own: '#', ga: '#/ga', gsc: '#/search', rep: '#/reports', ads: '#/adsense', tools: '#/tools' };
@@ -44,8 +47,10 @@
     else if (path.startsWith('/index') && src === 'gsc') tab = 'index';
     else if (src === 'ads' && path.startsWith('/sites')) tab = 'sites';
     else if (src === 'ads' && path.startsWith('/setup')) tab = 'setup';
-    else if (src === 'tools') for (const t of ['checker', 'speed', 'utm', 'links', 'broken', 'uptime', 'ranks']) if (path.startsWith('/' + t)) tab = t;
-    else if (src === 'rep') for (const t of ['daily', 'history', 'view', 'compare']) if (path.startsWith('/' + t)) tab = t;
+    // Braces matter: without them the 'rep' branch became the else of the tools loop's inner if,
+    // so #/reports/daily and #/reports/history always fell back to the Dashboard.
+    else if (src === 'tools') { for (const t of ['checker', 'speed', 'utm', 'links', 'broken', 'uptime', 'ranks']) if (path.startsWith('/' + t)) tab = t; }
+    else if (src === 'rep') { for (const t of ['daily', 'history', 'view', 'compare']) if (path.startsWith('/' + t)) tab = t; }
     if (site) site = site.toLowerCase().replace(/[^a-z0-9.-]/g, '') || null;
     return { src, tab, site, params };
   }
@@ -77,10 +82,10 @@
       const st = srcState(g.src);
       const sub = st ? `<span class="acc-sub"><span class="nav-dot ${st[0]}"></span>${esc(st[1])}</span>` : `<span class="acc-sub">${g.items.length} ${g.src === 'tools' ? 'tools' : 'pages'}</span>`;
       return `<div class="nav-group acc${open ? ' open' : ''}${cur ? ' cur' : ''}" data-src="${g.src}" style="--c:${ACC_COLOR[g.src]}">
-        <button type="button" class="acc-head" aria-expanded="${open}" aria-controls="acc-${g.src}"><span class="acc-ic">${icon(g.ic)}</span><span class="acc-title"><span class="acc-name">${esc(g.title)}</span>${sub}</span>${icon('chev', 'acc-chev')}</button>
+        <button type="button" class="acc-head" aria-expanded="${open}" aria-controls="acc-${g.src}"><span class="acc-ic${CL.logo(g.src) ? ' has-logo' : ''}">${groupIcon(g)}</span><span class="acc-title"><span class="acc-name">${esc(g.title)}</span>${sub}</span>${icon('chev', 'acc-chev')}</button>
         <div class="acc-body" id="acc-${g.src}"><div class="acc-inner">${g.items.map(([tab, label, ic]) => {
           const on = cur && (state.tab === tab || (tab === 'history' && (state.tab === 'view' || state.tab === 'compare')));
-          return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}${open ? '' : ' tabindex="-1"'}>${icon(ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
+          return `<a href="${link({ src: g.src, tab, site: tab === 'tracker' ? null : state.site })}" class="nav-item${on ? ' on' : ''}"${on ? ' aria-current="page"' : ''}${open ? '' : ' tabindex="-1"'}>${itemIcon(g.src, tab, ic)}<span>${label}</span>${g.src === 'own' && tab === 'live' ? '<span class="nav-count" data-live-count hidden></span>' : ''}</a>`;
         }).join('')}</div></div></div>`;
     }).join('');
   }

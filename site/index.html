@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=20261120h">
+  <link rel="stylesheet" href="style.css?v=20261120i">
 </head>
 <body>
   <div class="shell">
@@ -27,18 +27,18 @@
         </div>
       </div>
       <nav class="nav" id="nav"></nav>
-      <div class="side-foot">
-        <a href="#/live" class="live-pill" id="liveBadge" hidden></a>
-        <button type="button" class="acct-btn" id="accountBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account and settings"></button>
-      </div>
     </aside>
     <div class="scrim" id="scrim"></div>
 
     <div class="main">
-      <!-- phones only: the sidebar is a drawer, this bar opens it -->
+      <!-- top bar: live count + account on the right; on phones also the menu button and brand (the sidebar is a drawer there) -->
       <header class="mtop">
         <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu"></button>
         <a class="top-brand" href="#/reports" aria-label="CodeLove Admin home"><span class="logo" aria-hidden="true"></span><span>CodeLove <b>Admin</b></span></a>
+        <div class="top-right">
+          <a href="#/live" class="live-pill" id="liveBadge" hidden></a>
+          <button type="button" class="acct-btn" id="accountBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account and settings"></button>
+        </div>
       </header>
 
       <div id="downAlert" hidden></div>
@@ -48,20 +48,20 @@
 
   <div id="tooltip" class="tooltip" role="status" hidden></div>
 
-  <script src="config.js?v=20261120h"></script>
+  <script src="config.js?v=20261120i"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="common.js?v=20261120h"></script>
-  <script src="ga.js?v=20261120h"></script>
-  <script src="gsc.js?v=20261120h"></script>
-  <script src="own.js?v=20261120h"></script>
-  <script src="report.js?v=20261120h"></script>
-  <script src="dash.js?v=20261120h"></script>
-  <script src="ads.js?v=20261120h"></script>
-  <script src="tools.js?v=20261120h"></script>
-  <script src="tools2.js?v=20261120h"></script>
-  <script src="app.js?v=20261120h"></script>
+  <script src="common.js?v=20261120i"></script>
+  <script src="ga.js?v=20261120i"></script>
+  <script src="gsc.js?v=20261120i"></script>
+  <script src="own.js?v=20261120i"></script>
+  <script src="report.js?v=20261120i"></script>
+  <script src="dash.js?v=20261120i"></script>
+  <script src="ads.js?v=20261120i"></script>
+  <script src="tools.js?v=20261120i"></script>
+  <script src="tools2.js?v=20261120i"></script>
+  <script src="app.js?v=20261120i"></script>
 </body>
 </html>

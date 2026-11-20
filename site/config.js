@@ -38,6 +38,12 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in',
   ],
 
+  // Sites that run without AdSense on purpose. The AdSense "Sites & approval" table shows "Off" (grey) for them
+  // instead of a red "Missing", and the reason as a tooltip.
+  adsenseOff: {
+    'downloader.codelove.in': 'AdSense is off on purpose: a downloader breaks the AdSense copyright policy and could put the whole account at risk.',
+  },
+
   // Friendly names shown in the site picker (falls back to the subdomain).
   siteNames: {
     'codelove.in': 'CodeLove',
