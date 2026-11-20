@@ -133,9 +133,17 @@
     return { pts, cur: total(R.start, R.end), prev: total(R.prevStart, R.prevEnd) };
   }
 
+  // Search Console is 2–3 days late, so with a short range (Today, Yesterday, 7 days) almost every target looked
+  // "Not in Google yet". Targets are therefore always judged on at least the last 28 days up to the range end.
+  const TARGET_DAYS = 28;
+  const targetRange = (R) => (R.days >= TARGET_DAYS ? R : { ...R, start: iso(CL.addDays(CL.parseIso(R.end), -(TARGET_DAYS - 1))), days: TARGET_DAYS });
+  const targetKeywords = (s, R) => keywords(s, targetRange(R));
+  const targetNote = (R) => (R.days >= TARGET_DAYS ? '' : ` Targets are checked on the last ${TARGET_DAYS} days (${rangeText(targetRange(R))}), because Search Console data is 2–3 days late.`);
+
   // Target keywords vs the searches Search Console saw: case-insensitive "search contains target".
+  // s.tk = keywords over targetRange(R) when fetched; falls back to s.k.
   function targetRows(s) {
-    const qs = (s.k || []).map((k) => ({ ...k, ql: k.query.toLowerCase() }));
+    const qs = (s.tk || s.k || []).map((k) => ({ ...k, ql: k.query.toLowerCase() }));
     return (TARGETS[s.host] || []).map((t) => {
       const tl = String(t).toLowerCase().trim();
       const hits = tl ? qs.filter((q) => q.ql.includes(tl)) : [];
@@ -211,7 +219,8 @@
     if (!alive()) return;
     if (!list.length) return noPropsView();
     if (host && !sites.length) { paint(crumb('overview') + pageHead(EYEBROW, hostTitle(host), rangeText(R)) + noPropCard(host)); return; }
-    const { ok, errors } = await each(sites, (s) => Promise.all([daily(s, R), keywords(s, R)]).then(([d, k]) => ({ d, k })));
+    const { ok, errors } = await each(sites, (s) => Promise.all([daily(s, R), keywords(s, R), R.days >= TARGET_DAYS || !(TARGETS[s.host] || []).length ? null : targetKeywords(s, R)])
+      .then(([d, k, tk]) => ({ d, k, tk: tk || k })));
     if (!alive()) return;
     const S = series(R, ok.map((s) => s.d));
     if (host) {
@@ -289,15 +298,17 @@
     if (!list.length) return noPropsView();
     const title = host ? `Not showing yet · ${esc(host)}` : 'Not showing yet';
     if (host && !sites.length) { paint(crumb('missing') + pageHead(EYEBROW, title, rangeText(R)) + noPropCard(host)); return; }
-    const { ok, errors } = await each(sites, (s) => keywords(s, R).then((k) => ({ k })));
+    const { ok, errors } = await each(sites, (s) => targetKeywords(s, R).then((k) => ({ k })));
     if (!alive()) return;
     const rows = ok.flatMap(targetRows);
+    const tNote = targetNote(R);
+    R = targetRange(R); // headings show the range the targets were judged on
     const count = (g) => (g === 'all' ? rows.length : rows.filter((r) => r.group === g).length);
     const noTargets = ok.filter((s) => !(TARGETS[s.host] || []).length).map((s) => s.host);
     paint(errorBox(errors) + (host ? crumb('missing') : '') + pageHead(EYEBROW, title, `${rangeText(R)} · ${num(rows.length)} target keywords · ${num(count('none'))} not in Google yet`) + lagBanner + (host ? '' : missingBanner(missing.filter((h) => (TARGETS[h] || []).length))));
     const tiles = el('section', 'card kc', `<div class="kc-tabs" role="tablist" aria-label="Filter by Google page">${GROUPS.map(([g, label]) => `<button type="button" role="tab" class="kc-tab" data-g="${g}"><span class="kc-label">${esc(label)}</span><span class="kc-value">${num(count(g))}</span><span class="delta">${g === 'all' ? 'show all' : pct(div(count(g), rows.length))}</span></button>`).join('')}</div>`);
     const card = el('section', 'card', `<div class="card-head"><h2>Target keywords</h2><span class="note">Not in Google yet first</span></div><div class="tbl"></div>
-      <p class="note">A target counts as showing when a Google search containing it (any case) got at least one impression for the site in this range. "Best match" is that search with the best position. Edit the list in <code>config.js</code> → <code>searchKeywords</code>.${noTargets.length ? ` No targets yet for: ${noTargets.map(esc).join(', ')}.` : ''}</p>`);
+      <p class="note">A target counts as showing when a Google search containing it (any case) got at least one impression for the site in this range.${tNote} "Best match" is that search with the best position. Edit the list in <code>config.js</code> → <code>searchKeywords</code>.${noTargets.length ? ` No targets yet for: ${noTargets.map(esc).join(', ')}.` : ''}</p>`);
     app.append(tiles, card);
     const cols = [];
     if (!host) cols.push(siteCol);
@@ -684,6 +695,7 @@
   const lib = {
     SCOPE, DAY_QUOTA, resolve, daily, series, keywords, targetRows, indexData, inspect, idx, rankOf, quotaUsed, normUrl,
     keywordsPrev: (s, R) => keywords(s, { ...R, start: R.prevStart, end: R.prevEnd }),
+    targetKeywords, targetRange, targetNote, TARGET_DAYS,
     // raw Search Analytics rows for any dimensions (Tools → Rank tracker uses ['date', 'query'])
     rows: (s, start, end, dims) => query(s.prop, start, end, dims),
   };

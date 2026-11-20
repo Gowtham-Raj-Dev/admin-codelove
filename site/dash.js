@@ -29,8 +29,10 @@
       const per = {};
       await Promise.all(sites.map(async (s) => {
         try {
-          const [d, k] = await Promise.all([G.daily(s, R), G.keywords(s, R)]);
-          per[s.host] = { S: G.series(R, [d]), k, tr: G.targetRows({ host: s.host, k }) };
+          // Targets are judged on at least the last 28 days (Search Console is 2–3 days late; see GSC targetRange).
+          const short = R.days < G.TARGET_DAYS && (TARGETS[s.host] || []).length;
+          const [d, k, tk] = await Promise.all([G.daily(s, R), G.keywords(s, R), short ? G.targetKeywords(s, R) : null]);
+          per[s.host] = { S: G.series(R, [d]), k, tr: G.targetRows({ host: s.host, k, tk: tk || k }) };
         } catch (e) { per[s.host] = { error: e.message }; }
       }));
       return { state: 'ok', per, missing };
