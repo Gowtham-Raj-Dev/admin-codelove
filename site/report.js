@@ -207,6 +207,8 @@
           if (m.errors) add('fix', 7e8, `Sitemap has ${m.errors} error${m.errors > 1 ? 's' : ''}`, 'Open the sitemap in Search Console → Sitemaps to see the errors; every <loc> must be a full https URL on this host that returns 200, then resubmit.', { url: m.path, status: `Submitted ${fmtDay(m.submitted)} · Google read it ${fmtDay(m.read) || 'never'}` });
           else if (m.warnings) add('win', 3e8, `Sitemap has ${m.warnings} warning${m.warnings > 1 ? 's' : ''}`, 'Open the sitemap in Search Console → Sitemaps to see the warnings and fix them, then resubmit.', { url: m.path, status: `Submitted ${fmtDay(m.submitted)} · Google read it ${fmtDay(m.read) || 'never'}` });
         });
+        // An http:// URL-prefix property only covers http:// URLs, while every CodeLove site serves https.
+        if (/^http:\/\//i.test(g.s.prop.url)) add('fix', 7.5e8, 'Search Console property is http://, not https://', `This site is in Search Console as ${g.s.prop.url}, but the site serves https://${host}/. Add a new URL-prefix property https://${host}/ (or a Domain property for codelove.in), verify it, submit https://${host}/sitemap.xml there, and remove the old http:// sitemap.`, { url: `https://${host}/`, gsc: true });
         ix.sm.errors.forEach((e) => add('fix', 6e8, 'sitemap.xml could not be read', `${e}. The site must serve /sitemap.xml (with CORS * so this dashboard can read it) listing every public page.`, { url: `https://${host}/sitemap.xml` }));
         for (const p of pages) for (const a of p.adv) {
           if (a.k === 'info' && !(p.st === 'unk' && p.impr === 0 && a.s === 'Not checked yet')) continue;

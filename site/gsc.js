@@ -372,7 +372,10 @@
   // URLs from the site's own sitemap.xml (+ sitemap indexes). Every CodeLove site serves it with CORS *.
   function sitemapUrls(host, extra) {
     return cached('smx|' + host + '|' + extra.join(','), async () => {
-      const seen = new Set(), urls = new Set(), queue = [`https://${host}/sitemap.xml`, ...extra], errors = [];
+      // An http:// sitemap path (from an http:// Search Console property, e.g. videocut) can't be fetched from this
+      // https page (mixed content → "Failed to fetch"), so read it over https; every CodeLove site serves https.
+      const toHttps = (u) => String(u).replace(/^http:\/\//i, 'https://');
+      const seen = new Set(), urls = new Set(), queue = [`https://${host}/sitemap.xml`, ...extra.map(toHttps)], errors = [];
       let files = 0;
       while (queue.length && files < 25 && urls.size < 50000) {
         const f = queue.shift();
@@ -383,7 +386,7 @@
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const doc = new DOMParser().parseFromString(await res.text(), 'application/xml');
           const locs = [...doc.getElementsByTagName('loc')].map((x) => x.textContent.trim()).filter(Boolean);
-          if (doc.getElementsByTagName('sitemapindex').length) queue.push(...locs); else locs.forEach((u) => urls.add(normUrl(u)));
+          if (doc.getElementsByTagName('sitemapindex').length) queue.push(...locs.map(toHttps)); else locs.forEach((u) => urls.add(normUrl(u)));
         } catch (e) { errors.push(`${f}: ${e.message === 'Failed to fetch' ? 'blocked (CORS) or offline' : e.message}`); }
       }
       return { urls: [...urls], errors, files: files - errors.length };
