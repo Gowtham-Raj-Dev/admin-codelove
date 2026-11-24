@@ -36,6 +36,7 @@ window.ADMIN_CONFIG = {
     'videomaker.codelove.in',
     'apps.codelove.in',
     'gowtham.codelove.in',
+    'webly.codelove.in',
   ],
 
   // Sites that run without AdSense on purpose. The AdSense "Sites & approval" table shows "Off" (grey) for them
@@ -71,6 +72,7 @@ window.ADMIN_CONFIG = {
     'videomaker.codelove.in': 'Video Maker',
     'apps.codelove.in': 'Apps',
     'gowtham.codelove.in': 'Portfolio',
+    'webly.codelove.in': 'Webly',
   },
 
   // Reports → "Copy for AI": where each site's source code lives (folder under repoRoot).
@@ -89,6 +91,7 @@ window.ADMIN_CONFIG = {
     'videomaker.codelove.in': 'video-maker',
     'apps.codelove.in': 'apps-codelove',
     'gowtham.codelove.in': 'gowtham-portfolio',
+    'webly.codelove.in': 'webly-codelove',
   },
 
   // Google Search → "Not showing": searches each site should show up for. Edit freely.
@@ -108,6 +111,7 @@ window.ADMIN_CONFIG = {
     'videomaker.codelove.in': ['free video maker', 'ai video maker', 'free ai video maker', 'text to video ai free', 'cartoon video maker', 'talking cartoon maker', 'youtube shorts maker', 'tamil cartoon video maker', 'codelove video maker'],
     'apps.codelove.in': ['codelove apps', 'free android games', 'video cutter app', 'video to gif app', 'instagram downloader app', 'java game emulator apk'],
     'gowtham.codelove.in': ['gowtham', 'gowthamraj', 'gowtham codelove', 'creative web developer', '3d portfolio', 'three.js portfolio'],
+    'webly.codelove.in': ['webly', 'website analytics', 'seo audit', 'website problem fixer', 'google analytics viewer', 'google search console dashboard', 'site health checker'],
   },
 
   // Google Search → "Index status": pages are read from each site's sitemap.xml + pages Google showed in
