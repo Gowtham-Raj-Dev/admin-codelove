@@ -225,6 +225,7 @@
       { key: 'tShow', label: 'Targets', num: true, html: (s) => (s.tTotal ? (s.gOk ? `${s.tShow} <span class="muted">/ ${s.tTotal}</span>` : `<span class="muted">${s.tTotal} set</span>`) : '<span class="muted">none</span>') },
       ...(hasIx ? [{ key: 'idx', label: 'Indexed', num: true, html: (s) => (s.ix ? `${num(s.ix.indexed)} <span class="muted">/</span> ${s.ix.notIndexed ? `<span class="delta down">${num(s.ix.notIndexed)}</span>` : '0'}` : '<span class="muted">–</span>') }] : []),
       { key: 'todo', label: 'To do', num: true, html: (s) => `<span class="rs-counts">${s.fix ? `<span class="gp none">${s.fix} fix</span>` : ''}${s.win ? `<span class="gp p23">${s.win} improve</span>` : ''}${!s.fix && !s.win ? '<span class="gp p1">OK</span>' : ''}</span>` },
+      { key: 'webly', label: 'Webly', html: (s) => `<a class="btn sm" href="https://webly.codelove.in/tools/site-audit/?site=${encodeURIComponent(s.host)}" target="_blank" rel="noopener" style="padding:2px 8px;font-size:12px">${icon('tool')}Audit</a>` },
     ], rows.map((s) => ({ ...s, live: live[s.host] || 0, idx: s.ix ? s.ix.indexed : -1, todo: s.fix * 100 + s.win })), { sort: 'visitors', pageSize: 100 });
   }
   const liveCell = (n) => (n ? `<span class="live-n">${pulse(n)}${num(n)}</span>` : '<span class="muted">0</span>');

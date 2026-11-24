@@ -182,7 +182,7 @@
     ], rows.map((r) => ({ ...r, name: nameOf(r.host), status: r.home.status, ms: r.home.ok ? r.home.ms : 99999, fixN: r.C.filter((c) => c.lvl === 'fix').length, warnN: r.C.filter((c) => c.lvl === 'warn').length })), {
       sort: 'score', asc: true, pageSize: 100,
       rowKey: (r) => r.host,
-      expand: (r) => `<div class="h-detail">${checkList(r.C)}<p class="note"><a href="${CL.link({ src: 'tools', tab: 'checker' })}?url=${encodeURIComponent('https://' + r.host + '/')}">Open in Page checker →</a></p></div>`,
+      expand: (r) => `<div class="h-detail">${checkList(r.C)}<p class="note" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><a href="${CL.link({ src: 'tools', tab: 'checker' })}?url=${encodeURIComponent('https://' + r.host + '/')}">Open in Page checker →</a><a href="https://webly.codelove.in/tools/site-audit/?site=${encodeURIComponent(r.host)}" target="_blank" rel="noopener" style="font-weight:600">Deep 30+ SEO Audit in Webly →</a></p></div>`,
     });
     $('.dash-sites').insertAdjacentHTML('afterend', '<p class="note">Click a row to see every check with what to do. Words / H1 are read from the HTML Google first receives; apps that build the page with JavaScript show fewer.</p>');
   }
@@ -331,6 +331,8 @@
   function viewLinks() {
     const L = (href, label, sub = '') => `<a class="ql" href="${esc(href)}" target="_blank" rel="noopener"><b>${esc(label)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}${icon('ext')}</a>`;
     const consoles = [
+      ['https://webly.codelove.in/', 'Webly Analytics & SEO', 'free visitor tracker & 9 SEO tools'],
+      ['https://webly.codelove.in/tools/site-audit/', 'Webly Site Auditor', '30+ deep SEO audit & fixes'],
       ['https://search.google.com/search-console', 'Search Console', 'indexing, sitemaps, keywords'],
       ['https://analytics.google.com/', 'Google Analytics', 'GA4 properties'],
       ['https://adsense.google.com/', 'AdSense', 'earnings, sites, ads'],
@@ -343,12 +345,13 @@
       ['https://www.whatsmydns.net/', 'DNS checker', 'CNAME / propagation'],
     ];
     paint(pageHead(EYEBROW, 'Quick links', 'Every console, and per-site test tools, in one place')
-      + `<section class="card"><div class="card-head"><h2>Consoles</h2></div><div class="ql-grid">${consoles.map(([h, l, s]) => L(h, l, s)).join('')}</div></section>`
+      + `<section class="card"><div class="card-head"><h2>Consoles &amp; Platforms</h2></div><div class="ql-grid">${consoles.map(([h, l, s]) => L(h, l, s)).join('')}</div></section>`
       + `<div class="tk-grid">${SITES.map((h) => {
         const u = `https://${h}/`, e = encodeURIComponent(u);
         return `<section class="card ql-site"><div class="tk-head"><span class="tk-title">${favicon(h)}<span><b>${esc(nameOf(h))}</b><span class="note">${esc(h)}</span></span></span></div>
           <div class="ql-mini">${[
             [u, 'Open site'], [`${u}sitemap.xml`, 'sitemap.xml'], [`${u}robots.txt`, 'robots.txt'], [`https://www.google.com/search?q=site%3A${encodeURIComponent(h)}`, 'site: search'],
+            [`https://webly.codelove.in/tools/site-audit/?site=${encodeURIComponent(h)}`, 'Webly Audit'],
             [`https://search.google.com/search-console/inspect?resource_id=${encodeURIComponent('sc-domain:codelove.in')}&id=${e}`, 'URL Inspection'],
             [`https://pagespeed.web.dev/analysis?url=${e}`, 'PageSpeed'], [`https://search.google.com/test/rich-results?url=${e}`, 'Rich results'],
             [`https://developers.facebook.com/tools/debug/?q=${e}`, 'Share preview'],
