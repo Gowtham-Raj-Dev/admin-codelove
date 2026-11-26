@@ -43,7 +43,6 @@ window.ADMIN_CONFIG = {
   // instead of a red "Missing", and the reason as a tooltip.
   adsenseOff: {
     'downloader.codelove.in': 'AdSense is off on purpose: a downloader breaks the AdSense copyright policy and could put the whole account at risk.',
-    'webly.codelove.in': 'Webly is an analytics & SEO tools app; AdSense display ads are not enabled.',
   },
 
   // Site health notes, for checks the page HTML can't show. ['ok', why] = installed but loaded by JavaScript
