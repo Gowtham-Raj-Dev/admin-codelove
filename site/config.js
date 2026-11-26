@@ -52,7 +52,7 @@ window.ADMIN_CONFIG = {
     'games.codelove.in': { ga: ['ok', 'via Firebase Analytics (G-65L0LB1CJT + games property G-MEHYR05XXV), added by JavaScript'] },
     'models.codelove.in': { ga: ['ok', 'via Firebase Analytics (G-65L0LB1CJT), added by JavaScript'] },
     'linkinbio.codelove.in': { ga: ['ok', 'via Firebase Analytics (measurement ID from the deploy secret), added by JavaScript'] },
-    'videomaker.codelove.in': { ga: ['ok', 'via Firebase Analytics (G-E7XZ96YCVC), added by JavaScript'] },
+    'videomaker.codelove.in': { ga: ['ok', 'via Google Tag (gtag.js) & Firebase Analytics (G-E7XZ96YCVC)'] },
     'apps.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site; the Android apps use AdMob/Firebase instead'] },
     'gowtham.codelove.in': { ga: ['skip', 'personal portfolio; CodeLove Analytics covers it'] },
     'webly.codelove.in': { ga: ['skip', 'CodeLove Analytics & Webly Analytics cover this site'] },
