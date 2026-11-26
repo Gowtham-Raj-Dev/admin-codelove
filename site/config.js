@@ -37,6 +37,7 @@ window.ADMIN_CONFIG = {
     'apps.codelove.in',
     'gowtham.codelove.in',
     'webly.codelove.in',
+    'satisfying.codelove.in',
   ],
 
   // Sites that run without AdSense on purpose. The AdSense "Sites & approval" table shows "Off" (grey) for them
@@ -56,6 +57,7 @@ window.ADMIN_CONFIG = {
     'apps.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site; the Android apps use AdMob/Firebase instead'] },
     'gowtham.codelove.in': { ga: ['skip', 'personal portfolio; CodeLove Analytics covers it'] },
     'webly.codelove.in': { ga: ['skip', 'CodeLove Analytics & Webly Analytics cover this site'] },
+    'satisfying.codelove.in': { ga: ['ok', 'via Google Tag (gtag.js) G-E7XZ96YCVC'] },
   },
 
   // Friendly names shown in the site picker (falls back to the subdomain).
@@ -74,6 +76,7 @@ window.ADMIN_CONFIG = {
     'apps.codelove.in': 'Apps',
     'gowtham.codelove.in': 'Portfolio',
     'webly.codelove.in': 'Webly',
+    'satisfying.codelove.in': 'Satisfying Maker',
   },
 
   // Reports → "Copy for AI": where each site's source code lives (folder under repoRoot).
@@ -93,6 +96,7 @@ window.ADMIN_CONFIG = {
     'apps.codelove.in': 'apps-codelove',
     'gowtham.codelove.in': 'gowtham-portfolio',
     'webly.codelove.in': 'webly-codelove',
+    'satisfying.codelove.in': 'satisfying-video-maker',
   },
 
   // Google Search → "Not showing": searches each site should show up for. Edit freely.
