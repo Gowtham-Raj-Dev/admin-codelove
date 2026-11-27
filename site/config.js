@@ -60,7 +60,8 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in': { ga: ['skip', 'personal portfolio; CodeLove Analytics covers it'] },
     'webly.codelove.in': { ga: ['skip', 'CodeLove Analytics & Webly Analytics cover this site'] },
     'satisfying-video-maker.codelove.in': { ga: ['ok', 'via Google Tag (gtag.js) G-E7XZ96YCVC'] },
-    'voltarc.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site'], adsense: ['skip', 'monetized via Playgama partner games'] },
+    'voltarc.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site'] },
+    'iloveconvert.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site'] },
   },
 
   // Friendly names shown in the site picker (falls back to the subdomain).
