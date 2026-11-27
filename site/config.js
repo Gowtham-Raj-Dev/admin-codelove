@@ -38,6 +38,8 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in',
     'webly.codelove.in',
     'satisfying-video-maker.codelove.in',
+    'voltarc.codelove.in',
+    'iloveconvert.codelove.in',
   ],
 
   // Sites that run without AdSense on purpose. The AdSense "Sites & approval" table shows "Off" (grey) for them
@@ -58,6 +60,7 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in': { ga: ['skip', 'personal portfolio; CodeLove Analytics covers it'] },
     'webly.codelove.in': { ga: ['skip', 'CodeLove Analytics & Webly Analytics cover this site'] },
     'satisfying-video-maker.codelove.in': { ga: ['ok', 'via Google Tag (gtag.js) G-E7XZ96YCVC'] },
+    'voltarc.codelove.in': { ga: ['skip', 'CodeLove Analytics covers this site'], adsense: ['skip', 'monetized via Playgama partner games'] },
   },
 
   // Friendly names shown in the site picker (falls back to the subdomain).
@@ -77,6 +80,8 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in': 'Portfolio',
     'webly.codelove.in': 'Webly',
     'satisfying-video-maker.codelove.in': 'Satisfying Video Maker',
+    'voltarc.codelove.in': 'VOLTARC (Cloud Arcade)',
+    'iloveconvert.codelove.in': 'ILoveConvert',
   },
 
   // Reports → "Copy for AI": where each site's source code lives (folder under repoRoot).
@@ -97,6 +102,8 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in': 'gowtham-portfolio',
     'webly.codelove.in': 'webly-codelove',
     'satisfying-video-maker.codelove.in': 'satisfying-video-maker',
+    'voltarc.codelove.in': 'playgama.codelove',
+    'iloveconvert.codelove.in': 'i-love-convert',
   },
 
   // Google Search → "Not showing": searches each site should show up for. Edit freely.
@@ -118,6 +125,8 @@ window.ADMIN_CONFIG = {
     'gowtham.codelove.in': ['gowtham', 'gowthamraj', 'gowtham codelove', 'creative web developer', '3d portfolio', 'three.js portfolio'],
     'webly.codelove.in': ['webly', 'website analytics', 'seo audit', 'website problem fixer', 'google analytics viewer', 'google search console dashboard', 'site health checker'],
     'satisfying-video-maker.codelove.in': ['satisfying video maker', 'asmr video generator', 'bouncing ball simulation', 'marble race generator', 'ring escape simulator', 'hydraulic press simulation', 'kinetic sand simulator', 'physics simulation games', 'codelove satisfying maker'],
+    'voltarc.codelove.in': ['voltarc', 'free browser games', 'instant play games online', 'free html5 games', '3d webgl browser games', 'play online games no download', 'mobile browser games', 'codelove arcade'],
+    'iloveconvert.codelove.in': ['iloveconvert', 'free online converter', 'image converter free', 'pdf tools online', 'json formatter', 'base64 encoder', 'qr code generator', 'codelove tools'],
   },
 
   // Google Search → "Index status": pages are read from each site's sitemap.xml + pages Google showed in
