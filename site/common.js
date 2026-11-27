@@ -149,12 +149,12 @@
   // Real product logos (site/img) for the Google services and CodeLove itself.
   const LOGOS = { own: 'img/codelove.png', ga: 'img/ga.svg', gsc: 'img/search-console.png', ads: 'img/adsense.png', speed: 'img/pagespeed.png' };
   const logo = (key, cls = '') => LOGOS[key] ? `<img class="logo-img${cls ? ' ' + cls : ''}" src="${LOGOS[key]}" alt="" width="20" height="20" decoding="async">` : '';
-  // Site favicon. Next.js sites only serve /icon.svg (no /favicon.ico), so try a few paths in order,
-  // remember the one that worked for this session, and fall back to the site's first letter.
-  const FAV_PATHS = ['/favicon.ico', '/icon.svg', '/apple-icon.png'];
+  // Site favicon. Next.js / static sites may serve /favicon.ico, /icon.svg, /favicon.svg, or /favicon-48.png,
+  // so try common icon paths in order, remember the working path in sessionStorage, and fall back to first letter.
+  const FAV_PATHS = ['/favicon.ico', '/icon.svg', '/favicon.svg', '/favicon-48.png', '/apple-icon.png', '/apple-touch-icon.png'];
   const favPick = {}; // host -> index into FAV_PATHS that loaded (only successes are remembered; a network blip retries next time)
-  try { Object.assign(favPick, JSON.parse(sessionStorage.getItem('cl_fav') || '{}')); } catch { /* ignore */ }
-  const saveFav = () => store.set('cl_fav', JSON.stringify(favPick), sessionStorage);
+  try { Object.assign(favPick, JSON.parse(sessionStorage.getItem('cl_fav2') || '{}')); } catch { /* ignore */ }
+  const saveFav = () => store.set('cl_fav2', JSON.stringify(favPick), sessionStorage);
   const favHost = (host) => String(host || '').toLowerCase().replace(/[^a-z0-9.-]/g, '');
   const favLetter = (h) => (h.replace(/^www\./, '').charAt(0) || '?').toUpperCase();
   const favicon = (host) => {
